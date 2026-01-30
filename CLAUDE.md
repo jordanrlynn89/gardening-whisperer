@@ -41,6 +41,29 @@ Always provide ways to verify your work:
 - **Text-to-Speech:** ElevenLabs API
 - **AI Model:** Gemini 3 Pro (multimodal: text + images)
 
+## Development Commands
+
+```bash
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
+
+# Run linting
+npm run lint
+```
+
+## Environment Setup
+
+1. Copy `.env.example` to `.env.local`
+2. Add your API keys:
+   - Gemini API: https://ai.google.dev/
+   - ElevenLabs API: https://elevenlabs.io/
+
 ## Core Architecture
 
 ### Two-Layer Response Pattern
