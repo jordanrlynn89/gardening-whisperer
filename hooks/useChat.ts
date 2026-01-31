@@ -31,6 +31,11 @@ export function useChat(): UseChatReturn {
       setMessages((prev) => [...prev, userMessage]);
 
       try {
+        // CRITICAL FIX: Build history that includes current message
+        // The closure captures `messages` at callback creation time, so it's stale.
+        // We must explicitly include the userMessage we just created.
+        const historyToSend = [...messages, userMessage];
+
         // Call the API
         const response = await fetch('/api/chat', {
           method: 'POST',
@@ -39,7 +44,7 @@ export function useChat(): UseChatReturn {
           },
           body: JSON.stringify({
             message,
-            conversationHistory: messages,
+            conversationHistory: historyToSend,
             imageData,
           }),
         });

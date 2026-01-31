@@ -33,6 +33,20 @@ export function useSpeechRecognition({
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const isStoppingRef = useRef(false); // Track manual stops vs auto-stops
+  const isListeningRef = useRef(false); // Ref for immediate state access (avoids stale closure)
+
+  // Use refs for callbacks to avoid stale closures
+  const onTranscriptRef = useRef(onTranscript);
+  const onSilenceRef = useRef(onSilence);
+
+  // Update refs when callbacks change
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript;
+  }, [onTranscript]);
+
+  useEffect(() => {
+    onSilenceRef.current = onSilence;
+  }, [onSilence]);
 
   // Check if Web Speech API is supported (Chrome-only per CLAUDE.md)
   useEffect(() => {
@@ -68,17 +82,23 @@ export function useSpeechRecognition({
     }
 
     silenceTimerRef.current = setTimeout(() => {
-      if (onSilence) {
-        onSilence();
+      if (onSilenceRef.current) {
+        onSilenceRef.current();
       }
     }, silenceTimeout);
-  }, [onSilence, silenceTimeout]);
+  }, [silenceTimeout]);
 
   // Start listening
   const startListening = useCallback(() => {
-    if (!recognitionRef.current || isListening) return;
+    if (!recognitionRef.current) return;
+
+    // Check if already listening - use ref for immediate state (avoids stale closure)
+    if (isListeningRef.current) {
+      return;
+    }
 
     setError(null);
+    isListeningRef.current = true; // Update ref immediately
     setIsListening(true);
 
     const recognition = recognitionRef.current;
@@ -110,8 +130,8 @@ export function useSpeechRecognition({
       if (finalText) {
         setTranscript((prev) => {
           const updated = prev + finalText;
-          if (onTranscript) {
-            onTranscript(updated.trim(), true);
+          if (onTranscriptRef.current) {
+            onTranscriptRef.current(updated.trim(), true);
           }
           return updated;
         });
@@ -122,8 +142,8 @@ export function useSpeechRecognition({
       }
 
       // Notify of interim results too
-      if (interimText && onTranscript) {
-        onTranscript(interimText, false);
+      if (interimText && onTranscriptRef.current) {
+        onTranscriptRef.current(interimText, false);
       }
     };
 
@@ -151,6 +171,7 @@ export function useSpeechRecognition({
       }
 
       setError(errorMessage);
+      isListeningRef.current = false;
       setIsListening(false);
     };
 
@@ -158,6 +179,7 @@ export function useSpeechRecognition({
     recognition.onend = () => {
       // Only stop if we manually triggered stop
       if (isStoppingRef.current) {
+        isListeningRef.current = false;
         setIsListening(false);
         if (silenceTimerRef.current) {
           clearTimeout(silenceTimerRef.current);
@@ -170,6 +192,7 @@ export function useSpeechRecognition({
           recognition.start();
         } catch (err) {
           console.error('Failed to restart recognition:', err);
+          isListeningRef.current = false;
           setIsListening(false);
         }
       }
@@ -182,22 +205,24 @@ export function useSpeechRecognition({
     } catch (err) {
       console.error('Failed to start recognition:', err);
       setError('Failed to start speech recognition');
+      isListeningRef.current = false;
       setIsListening(false);
     }
-  }, [isListening, onTranscript, resetSilenceTimer]);
+  }, [resetSilenceTimer]); // Removed isListening dependency - we use the ref
 
   // Stop listening
   const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListening) {
+    if (recognitionRef.current && isListeningRef.current) {
       isStoppingRef.current = true;
       recognitionRef.current.stop();
+      isListeningRef.current = false; // Update ref immediately
       setIsListening(false);
 
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
       }
     }
-  }, [isListening]);
+  }, []); // No dependency on isListening - we use the ref
 
   // Reset transcript
   const resetTranscript = useCallback(() => {

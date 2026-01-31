@@ -22,12 +22,34 @@ Always provide ways to verify your work:
 - Run the dev server and manually test voice interactions after changes
 - For UI changes, describe what should be visible/audible and verify it matches
 
+### Test-Driven Development (TDD)
+
+**Write tests before implementing features.** This is mandatory for all new functionality.
+
+1. **Red**: Write a failing test that defines the expected behavior
+2. **Green**: Write the minimum code to make the test pass
+3. **Refactor**: Clean up while keeping tests green
+
+**What to test:**
+- Voice transcription handling (mock Web Speech API)
+- Gemini API responses and JSON parsing
+- TTS integration and audio playback triggers
+- Garden walk coverage state transitions
+- Ambient sound ducking/unduck behavior
+
+**Test commands:**
+```bash
+npm test              # Run all tests
+npm test -- --watch   # Watch mode during development
+```
+
 ### Development Workflow
-1. **Explore first**: Read existing code before making changes
-2. **Plan for multi-file changes**: Use Plan Mode for features touching >2 files or architectural decisions
-3. **Skip planning for simple fixes**: Direct implementation is fine for typos, single-line changes, or clear bug fixes
-4. **Verify immediately**: Test after every significant change
-5. **Course-correct early**: Stop and redirect as soon as something looks wrong
+1. **Write tests first**: Define expected behavior before coding
+2. **Explore first**: Read existing code before making changes
+3. **Plan for multi-file changes**: Use Plan Mode for features touching >2 files or architectural decisions
+4. **Skip planning for simple fixes**: Direct implementation is fine for typos, single-line changes, or clear bug fixes
+5. **Verify immediately**: Run tests after every change
+6. **Course-correct early**: Stop and redirect as soon as a test fails unexpectedly
 
 ### Context Management
 - Run `/clear` between unrelated tasks (e.g., after fixing a bug, before starting a new feature)
@@ -46,6 +68,12 @@ Always provide ways to verify your work:
 ```bash
 # Start development server
 npm run dev
+
+# Run tests
+npm test
+
+# Run tests in watch mode
+npm test -- --watch
 
 # Build for production
 npm run build

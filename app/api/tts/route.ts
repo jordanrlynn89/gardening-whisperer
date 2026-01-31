@@ -7,7 +7,6 @@ if (!process.env.ELEVENLABS_API_KEY) {
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
 // Default voice: Rachel (friendly, warm female voice)
-// You can find more voices at: https://elevenlabs.io/voice-library
 const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM';
 
 export async function POST(request: NextRequest) {
@@ -22,9 +21,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call ElevenLabs TTS API
+    // Call ElevenLabs TTS API with streaming optimization
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}?optimize_streaming_latency=4&output_format=mp3_22050_32`,
       {
         method: 'POST',
         headers: {
@@ -34,7 +33,7 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify({
           text,
-          model_id: 'eleven_turbo_v2_5',
+          model_id: 'eleven_flash_v2_5', // Flash model is faster than turbo
           voice_settings: {
             stability: 0.5,
             similarity_boost: 0.75,
