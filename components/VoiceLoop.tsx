@@ -5,30 +5,37 @@ import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useChat } from '@/hooks/useChat';
 import { useTTS } from '@/hooks/useTTS';
 import { useAmbientSound } from '@/hooks/useAmbientSound';
+import { Visualizer } from './Visualizer';
+import { GardenJourney, JourneyStage } from './GardenJourney';
 
-type ConversationState = 'idle' | 'listening' | 'thinking' | 'speaking';
+type AppState = 'idle' | 'connecting' | 'active' | 'summary' | 'error';
+
+function computeJourneyStage(coverage?: {
+  plantIdentified: boolean;
+  symptomsDiscussed: boolean;
+  environmentAssessed: boolean;
+  careHistoryGathered: boolean;
+}): JourneyStage {
+  if (!coverage) return 'start';
+
+  if (coverage.careHistoryGathered) return 'complete';
+  if (coverage.environmentAssessed) return 'care_history';
+  if (coverage.symptomsDiscussed) return 'environment';
+  if (coverage.plantIdentified) return 'symptoms';
+  return 'plant_id';
+}
 
 export function VoiceLoop() {
-  const [conversationState, setConversationState] = useState<ConversationState>('idle');
-  const [isActive, setIsActive] = useState(false);
+  const [appState, setAppState] = useState<AppState>('idle');
+  const [volume, setVolume] = useState(0);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Use refs to access latest values in callbacks
   const isActiveRef = useRef(false);
-  const conversationStateRef = useRef<ConversationState>('idle');
-
-  // Update refs when state changes
-  useEffect(() => {
-    isActiveRef.current = isActive;
-  }, [isActive]);
-
-  useEffect(() => {
-    conversationStateRef.current = conversationState;
-  }, [conversationState]);
-
-  // Ref to store the latest transcript
+  const conversationStateRef = useRef<'listening' | 'thinking' | 'speaking'>('listening');
   const userTranscriptRef = useRef('');
+  const [isWalking, setIsWalking] = useState(false);
+  const prevStageRef = useRef<JourneyStage>('start');
 
-  // Speech Recognition (STT)
   const {
     isListening,
     transcript: userTranscript,
@@ -38,46 +45,42 @@ export function VoiceLoop() {
   } = useSpeechRecognition({
     onTranscript: (text, isFinal) => {
       if (isFinal) {
-        // Store in ref immediately
         userTranscriptRef.current = text;
+      }
+      // Update volume based on transcript activity
+      if (text) {
+        setVolume(0.5 + Math.random() * 0.3);
       }
     },
     onSilence: () => {
       handleSilence();
+      setVolume(0.1);
     },
-    silenceTimeout: 1500, // Reduced from 2500ms for snappier responses
+    silenceTimeout: 1500,
   });
 
-  // Gemini Chat (AI)
-  const { messages, sendMessage, lastResponse, isLoading } = useChat();
+  const { messages, sendMessage, isLoading, lastResponse, clearMessages } = useChat();
+  const { startAmbient, stopAmbient, duck, unduck } = useAmbientSound({
+    volume: 0.12,
+    duckingVolume: 0.04,
+  });
 
-  // Ambient garden sounds for immersion
-  const {
-    startAmbient,
-    stopAmbient,
-    duck,
-    unduck,
-  } = useAmbientSound({ volume: 0.12, duckingVolume: 0.04 });
-
-  // Text-to-Speech (TTS)
   const { speak, isSpeaking, stop: stopSpeaking } = useTTS({
     onStart: () => {
-      setConversationState('speaking');
-      duck(); // Lower ambient volume while AI speaks
+      conversationStateRef.current = 'speaking';
+      duck();
+      setVolume(0.6);
     },
     onEnd: () => {
-      unduck(); // Restore ambient volume
-      // Resume listening after speaking
+      unduck();
+      setVolume(0.2);
       if (isActiveRef.current) {
-        setConversationState('listening');
-        startListening(); // Restart Web Speech API
-      } else {
-        setConversationState('idle');
+        conversationStateRef.current = 'listening';
+        startListening();
       }
     },
   });
 
-  // Handle silence detection
   const handleSilence = useCallback(async () => {
     if (!isActiveRef.current) return;
     if (conversationStateRef.current !== 'listening') return;
@@ -85,414 +88,263 @@ export function VoiceLoop() {
     const transcript = userTranscriptRef.current.trim();
     if (!transcript) return;
 
-    // Stop listening while we process
     stopListening();
-    setConversationState('thinking');
+    conversationStateRef.current = 'thinking';
+    setVolume(0.3);
 
-    // Send to Gemini
+    // Reset transcript BEFORE sending to avoid duplicate display
+    resetTranscript();
+    userTranscriptRef.current = '';
+
     const response = await sendMessage(transcript);
 
     if (response && isActiveRef.current) {
-      // Speak the response
       await speak(response.spokenResponse);
-    } else {
-      // Resume listening if we didn't get a response
-      if (isActiveRef.current) {
-        setConversationState('listening');
-      }
+    } else if (isActiveRef.current) {
+      conversationStateRef.current = 'listening';
+      startListening();
     }
+  }, [stopListening, sendMessage, speak, resetTranscript, startListening]);
 
-    // Reset transcript for next turn
-    resetTranscript();
-    userTranscriptRef.current = '';
-  }, [
-    stopListening,
-    sendMessage,
-    speak,
-    resetTranscript,
-  ]);
-
-  // Start conversation
   const handleStart = async () => {
-    setIsActive(true);
-    setConversationState('thinking');
+    setAppState('connecting');
+    setErrorMsg(null);
+    isActiveRef.current = true;
+    clearMessages();
+    prevStageRef.current = 'start';
 
-    // Start immersive garden ambiance
-    startAmbient();
+    try {
+      startAmbient();
 
-    // Send initial greeting to trigger garden walk introduction
-    const response = await sendMessage('Hello, I need help with my plant');
+      const response = await sendMessage('Hello, I need help with my plant');
 
-    if (response && isActiveRef.current) {
-      await speak(response.spokenResponse);
+      if (response && isActiveRef.current) {
+        setAppState('active');
+        await speak(response.spokenResponse);
+      } else {
+        throw new Error('Failed to get initial response');
+      }
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Connection failed');
+      setAppState('error');
+      stopAmbient();
     }
   };
 
-  // Stop conversation
-  const handleStop = () => {
-    setIsActive(false);
-    setConversationState('idle');
+  const handleEnd = () => {
+    isActiveRef.current = false;
     stopListening();
     stopSpeaking();
-    stopAmbient(); // Fade out garden sounds
+    stopAmbient();
+    setAppState('summary');
+    setVolume(0);
   };
 
-  // Check if diagnosis is complete
-  const isDiagnosisComplete = lastResponse?.structured.diagnosis !== undefined;
+  const handleCopySummary = () => {
+    const summary = messages
+      .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+      .join('\n\n');
+    navigator.clipboard.writeText(summary);
+  };
 
-  // Update conversation state based on hooks
+  const handleReset = () => {
+    setAppState('idle');
+    setVolume(0);
+  };
+
+  // Decay volume over time
   useEffect(() => {
-    if (!isActive) return;
+    const interval = setInterval(() => {
+      setVolume((v) => Math.max(0.1, v * 0.95));
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
 
-    if (isSpeaking) {
-      setConversationState('speaking');
-    } else if (isLoading) {
-      setConversationState('thinking');
-    } else if (isListening) {
-      setConversationState('listening');
+  // Compute current journey stage from coverage
+  const currentStage = computeJourneyStage(lastResponse?.structured?.coverage);
+
+  // Trigger walking animation on stage transitions
+  useEffect(() => {
+    if (currentStage !== prevStageRef.current) {
+      setIsWalking(true);
+      const timer = setTimeout(() => {
+        setIsWalking(false);
+        prevStageRef.current = currentStage;
+      }, 800);
+      return () => clearTimeout(timer);
     }
-  }, [isActive, isSpeaking, isLoading, isListening]);
-
-  // Get state display info
-  const getStateInfo = () => {
-    switch (conversationState) {
-      case 'listening':
-        return {
-          color: 'bg-green-500',
-          text: 'Listening...',
-          icon: '🎤',
-          description: 'Speak to me',
-        };
-      case 'thinking':
-        return {
-          color: 'bg-blue-500',
-          text: 'Thinking...',
-          icon: '🤔',
-          description: 'Processing your message',
-        };
-      case 'speaking':
-        return {
-          color: 'bg-purple-500',
-          text: 'Speaking...',
-          icon: '🔊',
-          description: 'Listening to response',
-        };
-      default:
-        return {
-          color: 'bg-gray-300',
-          text: 'Ready',
-          icon: '🌱',
-          description: 'Press Start to begin',
-        };
-    }
-  };
-
-  const stateInfo = getStateInfo();
+  }, [currentStage]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-garden-50 to-earth-50 p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-garden-900 mb-2">
-            🌱 Gardening Whisperer
-          </h1>
-          <p className="text-lg text-earth-600">
-            Your voice-first AI gardening assistant
+    <div className="relative w-full h-screen bg-stone-900 overflow-hidden">
+      <Visualizer volume={volume} isActive={appState === 'active'} />
+
+      <div className="absolute inset-0 bg-gradient-to-b from-stone-900/80 via-transparent to-stone-900/90 pointer-events-none z-0" />
+
+      {/* IDLE */}
+      {appState === 'idle' && (
+        <div className="relative z-10 flex flex-col items-center justify-center h-full space-y-8 px-6 text-center animate-in fade-in duration-500">
+          <div className="w-24 h-24 bg-green-800 rounded-full flex items-center justify-center shadow-2xl shadow-green-900/50">
+            <svg className="w-12 h-12 text-green-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-3xl font-light text-stone-200 mb-2">
+              Gardening Whisperer
+            </h1>
+            <p className="text-stone-400 max-w-xs mx-auto">
+              An immersive, voice-first guide for your plants
+            </p>
+          </div>
+          <button
+            onClick={handleStart}
+            className="group relative flex items-center justify-center w-20 h-20 bg-green-600 rounded-full hover:bg-green-500 transition-all duration-300 shadow-xl hover:shadow-green-500/30"
+          >
+            <svg className="w-8 h-8 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5v14l11-7z" />
+            </svg>
+            <span className="absolute -bottom-10 text-sm text-stone-500 font-medium tracking-wide">
+              START WALK
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* CONNECTING */}
+      {appState === 'connecting' && (
+        <div className="relative z-10 flex flex-col items-center justify-center h-full">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500" />
+          <p className="mt-4 text-stone-400 tracking-wider text-sm">
+            ENTERING THE GARDEN...
           </p>
         </div>
+      )}
 
-        {/* Status Card */}
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <div className={`w-6 h-6 rounded-full ${stateInfo.color} animate-pulse`} />
+      {/* ACTIVE */}
+      {appState === 'active' && (
+        <div className="relative z-10 flex flex-col h-full w-full">
+          {/* Header with live indicator */}
+          <div className="absolute top-0 w-full p-6 flex justify-between items-start">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs font-bold tracking-widest text-stone-500 uppercase">
+                Live Session
+              </span>
+            </div>
+          </div>
+
+          {/* Garden Journey Visual */}
+          <div className="flex-1 flex items-center justify-center">
+            <GardenJourney currentStage={currentStage} isWalking={isWalking} />
+          </div>
+
+          {/* Live transcript indicator */}
+          {userTranscript && (
+            <div className="absolute bottom-32 left-0 w-full flex justify-center px-6">
+              <div className="max-w-[85%] p-3 rounded-2xl bg-stone-800/60 text-stone-300 border border-stone-700/50 backdrop-blur-sm">
+                <p className="text-sm leading-relaxed italic">{userTranscript}...</p>
+              </div>
+            </div>
+          )}
+
+          {/* End Walk Button */}
+          <div className="absolute bottom-8 right-6 z-20">
+            <div className="flex flex-col items-center gap-2">
+              <button
+                onClick={handleEnd}
+                className="w-14 h-14 bg-red-500/20 hover:bg-red-500/40 border border-red-500/50 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-300"
+              >
+                <svg className="w-6 h-6 text-red-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+              <span className="text-xs text-stone-500 font-medium">END WALK</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUMMARY */}
+      {appState === 'summary' && (
+        <div className="relative z-10 flex flex-col items-center justify-center h-full px-6 animate-in slide-in-from-bottom duration-500">
+          <div className="w-full max-w-md bg-stone-800/50 backdrop-blur-xl border border-stone-700/50 rounded-3xl p-8 shadow-2xl">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="p-3 bg-green-900/50 rounded-xl text-green-400">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                </svg>
+              </div>
               <div>
-                <div className="text-2xl font-semibold text-gray-900">
-                  {stateInfo.icon} {stateInfo.text}
-                </div>
-                <div className="text-sm text-gray-600">{stateInfo.description}</div>
+                <h2 className="text-xl font-semibold text-stone-100">
+                  Garden Walk Complete
+                </h2>
+                <p className="text-sm text-stone-400">
+                  {new Date().toLocaleDateString()}
+                </p>
               </div>
             </div>
 
-            {/* Controls */}
-            <div className="flex gap-3">
-              {!isActive ? (
-                <button
-                  onClick={handleStart}
-                  className="px-6 py-3 bg-garden-600 text-white rounded-lg font-medium hover:bg-garden-700 transition-colors shadow-md hover:shadow-lg"
-                >
-                  {isDiagnosisComplete ? '🌱 Start New Garden Walk' : '🌱 Start Garden Walk'}
-                </button>
+            <div className="h-64 overflow-y-auto bg-stone-900/50 rounded-xl p-4 mb-6 border border-stone-800 text-sm text-stone-300 leading-relaxed">
+              {messages.length > 0 ? (
+                messages.map((m, i) => (
+                  <div key={i} className="mb-3">
+                    <span
+                      className={`font-bold text-xs uppercase ${
+                        m.role === 'assistant' ? 'text-green-500' : 'text-stone-500'
+                      }`}
+                    >
+                      {m.role === 'assistant' ? 'Gardener' : 'You'}
+                    </span>
+                    <p className="mt-1">{m.content}</p>
+                  </div>
+                ))
               ) : (
-                <button
-                  onClick={handleStop}
-                  className={`px-6 py-3 rounded-lg font-medium transition-colors shadow-md ${
-                    isDiagnosisComplete
-                      ? 'bg-green-600 text-white hover:bg-green-700'
-                      : 'bg-red-600 text-white hover:bg-red-700'
-                  }`}
-                >
-                  {isDiagnosisComplete ? '✅ Complete' : 'Stop'}
-                </button>
+                <p className="italic text-stone-600">No conversation recorded.</p>
               )}
             </div>
-          </div>
 
-          {/* Current Transcript */}
-          {isActive && userTranscript && (
-            <div className="mt-4 p-4 bg-garden-50 border border-garden-200 rounded-lg">
-              <div className="text-sm font-semibold text-garden-700 mb-1">
-                You're saying:
-              </div>
-              <div className="text-gray-900">{userTranscript}</div>
+            <div className="flex gap-4">
+              <button
+                onClick={handleCopySummary}
+                className="flex-1 py-3 px-4 bg-stone-700 hover:bg-stone-600 rounded-xl font-medium text-stone-200 transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                </svg>
+                Copy Summary
+              </button>
+              <button
+                onClick={handleReset}
+                className="flex-1 py-3 px-4 bg-green-700 hover:bg-green-600 rounded-xl font-medium text-white transition-colors"
+              >
+                Start New
+              </button>
             </div>
-          )}
+          </div>
         </div>
+      )}
 
-        {/* Coverage Tracking */}
-        {lastResponse?.structured.coverage && (
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                🌱 Garden Walk Progress
-              </h3>
-              <div className="text-sm font-medium text-gray-600">
-                {(() => {
-                  const completed = Object.values(lastResponse.structured.coverage).filter(Boolean).length;
-                  const total = Object.keys(lastResponse.structured.coverage).length;
-                  const percentage = Math.round((completed / total) * 100);
-                  return `${percentage}% Complete`;
-                })()}
-              </div>
-            </div>
-
-            {/* Progress Bar */}
-            <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
-              <div
-                className="bg-garden-600 h-2 rounded-full transition-all duration-500"
-                style={{
-                  width: `${
-                    (Object.values(lastResponse.structured.coverage).filter(Boolean).length /
-                      Object.keys(lastResponse.structured.coverage).length) *
-                    100
-                  }%`,
-                }}
-              />
-            </div>
-
-            {/* Coverage Grid */}
-            <div className="grid grid-cols-2 gap-3">
-              {[
-                { key: 'plantIdentified', label: 'Plant Type', icon: '🪴', category: 'plant_id' },
-                { key: 'symptomsDiscussed', label: 'Symptoms', icon: '🔍', category: 'symptoms' },
-                { key: 'environmentAssessed', label: 'Environment', icon: '☀️', category: 'environment' },
-                { key: 'careHistoryGathered', label: 'Care History', icon: '📅', category: 'care_history' },
-              ].map(({ key, label, icon, category }) => {
-                const isComplete = lastResponse.structured.coverage[key as keyof typeof lastResponse.structured.coverage];
-                const isActive = lastResponse.structured.nextAction?.category === category;
-
-                return (
-                  <div
-                    key={key}
-                    className={`p-3 rounded-lg border-2 transition-all duration-300 ${
-                      isComplete
-                        ? 'bg-green-50 border-green-400 shadow-sm'
-                        : isActive
-                        ? 'bg-blue-50 border-blue-400 shadow-md ring-2 ring-blue-200'
-                        : 'bg-gray-50 border-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl">{isComplete ? '✅' : isActive ? '💬' : icon}</span>
-                      <div className="flex-1">
-                        <div className="text-sm font-medium text-gray-700">{label}</div>
-                        {isActive && !isComplete && (
-                          <div className="text-xs text-blue-600 mt-0.5">Discussing now...</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Phase Indicator */}
-            {lastResponse.structured.nextAction?.type === 'wrap_up' && (
-              <div className="mt-4 p-3 bg-green-100 border border-green-300 rounded-lg">
-                <div className="text-sm font-semibold text-green-800 flex items-center gap-2">
-                  <span>🎉</span>
-                  <span>Ready for diagnosis!</span>
-                </div>
-              </div>
-            )}
+      {/* ERROR */}
+      {appState === 'error' && (
+        <div className="relative z-10 flex flex-col items-center justify-center h-full px-6 text-center">
+          <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mb-4">
+            <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </div>
-        )}
-
-        {/* Diagnosis & Actions */}
-        {lastResponse?.structured.diagnosis && (
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border-2 border-garden-400">
-            <h3 className="text-lg font-semibold text-garden-900 mb-4 flex items-center gap-2">
-              <span>🔬</span>
-              <span>Diagnosis</span>
-            </h3>
-
-            <div className="space-y-4">
-              {/* Condition */}
-              <div>
-                <div className="text-sm font-semibold text-gray-600 mb-1">Likely Condition:</div>
-                <div className="text-lg font-bold text-gray-900">
-                  {lastResponse.structured.diagnosis.condition}
-                  <span className="ml-2 text-sm font-normal text-gray-600">
-                    ({lastResponse.structured.diagnosis.confidence})
-                  </span>
-                </div>
-              </div>
-
-              {/* Reasoning */}
-              <div>
-                <div className="text-sm font-semibold text-gray-600 mb-1">Why:</div>
-                <div className="text-sm text-gray-700">{lastResponse.structured.diagnosis.reasoning}</div>
-              </div>
-
-              {/* Symptoms */}
-              {lastResponse.structured.diagnosis.symptoms && (
-                <div>
-                  <div className="text-sm font-semibold text-gray-600 mb-1">Observed Symptoms:</div>
-                  <ul className="text-sm text-gray-700 list-disc list-inside">
-                    {lastResponse.structured.diagnosis.symptoms.map((symptom, idx) => (
-                      <li key={idx}>{symptom}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Alternatives */}
-              {lastResponse.structured.diagnosis.alternatives && lastResponse.structured.diagnosis.alternatives.length > 0 && (
-                <div>
-                  <div className="text-sm font-semibold text-gray-600 mb-1">Could Also Be:</div>
-                  <ul className="text-sm text-gray-700 list-disc list-inside">
-                    {lastResponse.structured.diagnosis.alternatives.map((alt, idx) => (
-                      <li key={idx}>{alt}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Action Plan */}
-        {lastResponse?.structured.actions && (
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-6 border-2 border-blue-400">
-            <h3 className="text-lg font-semibold text-blue-900 mb-4 flex items-center gap-2">
-              <span>📋</span>
-              <span>Action Plan</span>
-            </h3>
-
-            <div className="space-y-4">
-              {/* Do Today */}
-              <div className="p-4 bg-red-50 rounded-lg border border-red-200">
-                <div className="text-sm font-semibold text-red-800 mb-2 flex items-center gap-2">
-                  <span>⚡</span>
-                  <span>Do This Today:</span>
-                </div>
-                <ul className="text-sm text-red-900 space-y-1">
-                  {lastResponse.structured.actions.doToday.map((action, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <span className="mt-0.5">•</span>
-                      <span>{action}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              {/* Check In */}
-              {lastResponse.structured.actions.checkInDays && (
-                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <div className="text-sm font-semibold text-blue-800 flex items-center gap-2">
-                    <span>📅</span>
-                    <span>Check again in {lastResponse.structured.actions.checkInDays} days</span>
-                  </div>
-                </div>
-              )}
-
-              {/* If Worsens */}
-              <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                <div className="text-sm font-semibold text-yellow-800 mb-2 flex items-center gap-2">
-                  <span>⚠️</span>
-                  <span>If This Worsens:</span>
-                </div>
-                <ul className="text-sm text-yellow-900 space-y-1">
-                  {lastResponse.structured.actions.ifWorsens.map((action, idx) => (
-                    <li key={idx} className="flex items-start gap-2">
-                      <span className="mt-0.5">•</span>
-                      <span>{action}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Conversation History */}
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            💬 Conversation
-          </h3>
-
-          {messages.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <p className="text-lg mb-2">No conversation yet</p>
-              <p className="text-sm">
-                Press "Start Conversation" and tell me about your plant!
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              {messages.map((msg, idx) => (
-                <div
-                  key={idx}
-                  className={`p-4 rounded-lg ${
-                    msg.role === 'user'
-                      ? 'bg-garden-100 border border-garden-200'
-                      : 'bg-earth-100 border border-earth-200'
-                  }`}
-                >
-                  <div className="font-semibold text-sm mb-1 text-gray-700">
-                    {msg.role === 'user' ? '👤 You' : '🌱 Assistant'}
-                  </div>
-                  <div className="text-gray-900">{msg.content}</div>
-                </div>
-              ))}
-            </div>
-          )}
+          <h2 className="text-xl text-stone-200 mb-2">Connection Error</h2>
+          <p className="text-stone-400 mb-6 max-w-xs">
+            {errorMsg || 'Something went wrong in the garden.'}
+          </p>
+          <button
+            onClick={handleReset}
+            className="px-6 py-2 bg-stone-700 hover:bg-stone-600 rounded-lg text-stone-200"
+          >
+            Return Home
+          </button>
         </div>
-
-        {/* Instructions */}
-        {!isActive && (
-          <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <h3 className="text-sm font-semibold text-blue-900 mb-3">
-              💡 How the Garden Walk Works:
-            </h3>
-            <ul className="text-sm text-blue-800 space-y-2">
-              <li>• Click "Start Conversation" and the AI will greet you</li>
-              <li>• Answer questions naturally about your plant</li>
-              <li>• The AI will ask about 4 areas: plant type, symptoms, environment, and care history</li>
-              <li>• Watch the progress bar fill as you provide information</li>
-              <li>• After 2-3 seconds of silence, the AI will respond</li>
-              <li>• When all info is gathered, you'll get a diagnosis and action plan</li>
-            </ul>
-            <div className="mt-4 p-3 bg-green-100 rounded border border-green-300">
-              <div className="text-xs font-semibold text-green-900 mb-1">✨ Tip for Demo:</div>
-              <div className="text-xs text-green-800">
-                Try: "My tomato plant has yellowing leaves at the bottom. It's outdoors in full sun. I water it every 2-3 days."
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
