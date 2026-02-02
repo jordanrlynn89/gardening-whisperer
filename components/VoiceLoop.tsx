@@ -269,6 +269,15 @@ export function VoiceLoop() {
       {appState === 'summary' && (
         <div className="relative z-10 flex flex-col items-center justify-center h-full px-6 animate-in slide-in-from-bottom duration-500">
           <div className="w-full max-w-md bg-stone-800/50 backdrop-blur-xl border border-stone-700/50 rounded-3xl p-8 shadow-2xl">
+            <button
+              onClick={handleReset}
+              className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-stone-700/50 hover:bg-stone-600/80 text-stone-400 hover:text-stone-200 transition-all duration-200"
+              aria-label="Close summary"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
             <div className="flex items-center gap-4 mb-6">
               <div className="p-3 bg-green-900/50 rounded-xl text-green-400">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
