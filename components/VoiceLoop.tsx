@@ -7,8 +7,13 @@ import { useTTS } from '@/hooks/useTTS';
 import { useAmbientSound } from '@/hooks/useAmbientSound';
 import { Visualizer } from './Visualizer';
 import { GardenJourney, JourneyStage } from './GardenJourney';
+import PhotoChooser from './PhotoChooser';
+import { CameraCapture } from './CameraCapture';
+import PhotoLibrary from './PhotoLibrary';
+import { isVerbalConfirmation, isVerbalRejection } from '@/lib/verbalConfirmation';
 
 type AppState = 'idle' | 'connecting' | 'active' | 'summary' | 'error';
+type PhotoState = 'none' | 'choosing_source' | 'capturing_camera' | 'selecting_library' | 'processing';
 
 function computeJourneyStage(coverage?: {
   plantIdentified: boolean;
@@ -29,12 +34,14 @@ export function VoiceLoop() {
   const [appState, setAppState] = useState<AppState>('idle');
   const [volume, setVolume] = useState(0);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [photoState, setPhotoState] = useState<PhotoState>('none');
 
   const isActiveRef = useRef(false);
   const conversationStateRef = useRef<'listening' | 'thinking' | 'speaking'>('listening');
   const userTranscriptRef = useRef('');
   const [isWalking, setIsWalking] = useState(false);
   const prevStageRef = useRef<JourneyStage>('start');
+  const photoSuggestedRef = useRef(false);
 
   const {
     isListening,
@@ -88,6 +95,23 @@ export function VoiceLoop() {
     const transcript = userTranscriptRef.current.trim();
     if (!transcript) return;
 
+    // Check if user is proactively offering to show a photo
+    const wantsToShowPhoto = transcript.toLowerCase().includes('show you') ||
+                            transcript.toLowerCase().includes('take a picture') ||
+                            transcript.toLowerCase().includes('take a photo') ||
+                            transcript.toLowerCase().includes('send a picture') ||
+                            transcript.toLowerCase().includes('upload');
+
+    if (wantsToShowPhoto && !photoSuggestedRef.current) {
+      console.log('[VoiceLoop] User wants to share photo! Opening chooser');
+      photoSuggestedRef.current = true;
+      setPhotoState('choosing_source');
+      resetTranscript();
+      userTranscriptRef.current = '';
+      stopListening();
+      return;
+    }
+
     stopListening();
     conversationStateRef.current = 'thinking';
     setVolume(0.3);
@@ -99,12 +123,32 @@ export function VoiceLoop() {
     const response = await sendMessage(transcript);
 
     if (response && isActiveRef.current) {
+      // Debug logging
+      console.log('[VoiceLoop] AI response:', {
+        nextActionType: response.structured?.nextAction?.type,
+        photoSuggested: photoSuggestedRef.current,
+        currentPhotoState: photoState,
+      });
+
+      // Check if AI is suggesting a photo - show chooser immediately
+      if (response.structured?.nextAction?.type === 'suggest_photo' && !photoSuggestedRef.current) {
+        console.log('[VoiceLoop] Photo suggested! Opening chooser immediately');
+        photoSuggestedRef.current = true;
+
+        // Speak the response first, then show the chooser
+        await speak(response.spokenResponse);
+
+        // Show the photo chooser modal
+        setPhotoState('choosing_source');
+        return;
+      }
+
       await speak(response.spokenResponse);
     } else if (isActiveRef.current) {
       conversationStateRef.current = 'listening';
       startListening();
     }
-  }, [stopListening, sendMessage, speak, resetTranscript, startListening]);
+  }, [photoState, stopListening, sendMessage, speak, resetTranscript, startListening]);
 
   const handleStart = async () => {
     setAppState('connecting');
@@ -150,6 +194,39 @@ export function VoiceLoop() {
   const handleReset = () => {
     setAppState('idle');
     setVolume(0);
+    setPhotoState('none');
+    photoSuggestedRef.current = false;
+  };
+
+  const handleCameraSelect = () => {
+    setPhotoState('capturing_camera');
+  };
+
+  const handleLibrarySelect = () => {
+    setPhotoState('selecting_library');
+  };
+
+  const handlePhotoCapture = async (imageData: string) => {
+    setPhotoState('processing');
+    stopListening();
+
+    const response = await sendMessage('Here is the photo', imageData);
+
+    if (response && isActiveRef.current) {
+      setPhotoState('none');
+      await speak(response.spokenResponse);
+    } else if (isActiveRef.current) {
+      setPhotoState('none');
+      conversationStateRef.current = 'listening';
+      startListening();
+    }
+  };
+
+  const handlePhotoCancel = () => {
+    setPhotoState('none');
+    if (isActiveRef.current && conversationStateRef.current === 'listening') {
+      startListening();
+    }
   };
 
   // Decay volume over time
@@ -186,7 +263,7 @@ export function VoiceLoop() {
         <div className="relative z-10 flex flex-col items-center justify-center h-full space-y-8 px-6 text-center animate-in fade-in duration-500">
           <div className="w-24 h-24 bg-green-800 rounded-full flex items-center justify-center shadow-2xl shadow-green-900/50">
             <svg className="w-12 h-12 text-green-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 22c0-3.5-2-6-4.5-7.5C5 13 4 10.5 4 8c0-2.5 1.5-4.5 3.5-5.5M12 22c0-3.5 2-6 4.5-7.5C19 13 20 10.5 20 8c0-2.5-1.5-4.5-3.5-5.5M12 22V8" />
             </svg>
           </div>
           <div>
@@ -201,7 +278,7 @@ export function VoiceLoop() {
             onClick={handleStart}
             className="group relative flex items-center justify-center w-20 h-20 bg-green-600 rounded-full hover:bg-green-500 transition-all duration-300 shadow-xl hover:shadow-green-500/30"
           >
-            <svg className="w-8 h-8 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+            <svg className="w-12 h-12 text-white" fill="currentColor" viewBox="0 0 24 24">
               <path d="M8 5v14l11-7z" />
             </svg>
             <span className="absolute -bottom-10 text-sm text-stone-500 font-medium tracking-wide">
@@ -262,6 +339,52 @@ export function VoiceLoop() {
               <span className="text-xs text-stone-500 font-medium">END WALK</span>
             </div>
           </div>
+
+          {/* Photo UI States */}
+          {photoState === 'choosing_source' && (
+            <PhotoChooser
+              onCameraSelect={handleCameraSelect}
+              onLibrarySelect={handleLibrarySelect}
+              onCancel={handlePhotoCancel}
+            />
+          )}
+
+          {photoState === 'capturing_camera' && (
+            <CameraCapture
+              onCapture={handlePhotoCapture}
+              onCancel={handlePhotoCancel}
+            />
+          )}
+
+          {photoState === 'selecting_library' && (
+            <PhotoLibrary
+              onSelect={handlePhotoCapture}
+              onCancel={handlePhotoCancel}
+            />
+          )}
+
+          {photoState === 'processing' && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.7)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1000,
+            }}>
+              <div style={{
+                textAlign: 'center',
+                color: '#fff',
+              }}>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500 mx-auto mb-4" />
+                <p className="text-lg">Analyzing your plant...</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

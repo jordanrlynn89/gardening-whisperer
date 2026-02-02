@@ -121,10 +121,18 @@ const SYSTEM_PROMPT = `Gardening assistant. Respond ONLY with valid JSON, nothin
 
 Rules:
 - spokenResponse: MAX 20 words
-- type: ask_question, provide_diagnosis, or wrap_up
+- type: ask_question, provide_diagnosis, suggest_photo, or wrap_up
 - category: plant_id, symptoms, environment, or care_history
 - Set coverage to true when learned
-- When all coverage true: add "diagnosis":{"condition":"...","confidence":"likely"} and "actions":{"doToday":["..."],"ifWorsens":["..."]}`;
+- When all coverage true: add "diagnosis":{"condition":"...","confidence":"likely"} and "actions":{"doToday":["..."],"ifWorsens":["..."]}
+
+Photo suggestion rules:
+- Use suggest_photo when plant ID is unclear after 2+ questions
+- Use suggest_photo when symptoms are vague or hard to diagnose from description alone
+- Use suggest_photo when user says "let me show you" or similar
+- NEVER suggest photos more than once per conversation
+- After receiving photo: acknowledge what you see, then continue diagnosis
+- Example suggest_photo response: {"structured":{"nextAction":{"type":"suggest_photo"}},"spokenResponse":"Would you like to show me a picture?"}`;
 
 export async function sendToGemini(
   userMessage: string,

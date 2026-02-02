@@ -21,6 +21,12 @@ export async function POST(request: NextRequest) {
     // Call Gemini API
     const response = await sendToGemini(message, conversationHistory, imageData);
 
+    // Debug logging
+    console.log('[Chat API] Gemini response:', JSON.stringify({
+      nextAction: response.structured?.nextAction,
+      spokenResponse: response.spokenResponse,
+    }));
+
     return NextResponse.json({
       success: true,
       data: response,
