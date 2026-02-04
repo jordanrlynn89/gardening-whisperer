@@ -11,10 +11,19 @@
     "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@capacitor/cli": "^8.0.2",
+    "@capacitor/core": "^8.0.2",
+    "@capacitor/ios": "^8.0.2",
+    "@deepgram/sdk": "^4.11.3",
+    "@google-cloud/text-to-speech": "^6.4.0",
+    "@google/genai": "^1.39.0",
     "@google/generative-ai": "^0.24.1",
+    "capacitor-voice-recorder": "^7.0.6",
+    "eruda": "^3.4.3",
     "next": "^15.1.6",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
