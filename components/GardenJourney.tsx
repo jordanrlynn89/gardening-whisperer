@@ -182,7 +182,7 @@ function DiagnosisIcon({ visible, active }: { visible: boolean; active: boolean 
 // Footsteps animation between stages
 function Footsteps({ animate }: { animate: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-1 h-12 justify-center">
+    <div className="flex flex-col items-center gap-1 h-8 sm:h-12 justify-center">
       {[0, 1, 2].map((i) => (
         <div
           key={i}
@@ -231,7 +231,7 @@ export function GardenJourney({ currentStage, isWalking }: GardenJourneyProps) {
   return (
     <div className="flex flex-col items-center justify-center h-full w-full px-6">
       {/* Journey Path */}
-      <div className="flex flex-col items-center gap-2 py-8">
+      <div className="flex flex-col items-center gap-1 sm:gap-2 py-4 sm:py-8">
         {/* Start: Archway */}
         <div className="flex flex-col items-center">
           <ArchwayIcon active={animatedIndex === 0} />

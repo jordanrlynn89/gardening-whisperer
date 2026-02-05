@@ -1,15 +1,22 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#1c1917",
+};
 
 export const metadata: Metadata = {
   title: "Gardening Whisperer",
   description: "Voice-first AI gardening assistant",
   manifest: "/manifest.json",
-  themeColor: "#22c55e",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-    maximumScale: 1,
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
   },
 };
 
@@ -20,7 +27,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-garden-50">
+      <body className="antialiased bg-stone-900">
         {children}
       </body>
     </html>

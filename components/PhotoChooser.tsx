@@ -46,14 +46,18 @@ const PhotoChooser: React.FC<PhotoChooserProps> = ({
           aria-label="Close"
           style={{
             position: 'absolute',
-            top: '12px',
-            right: '12px',
+            top: '8px',
+            right: '8px',
             background: 'transparent',
             border: 'none',
             color: '#888',
             fontSize: '24px',
             cursor: 'pointer',
-            padding: '4px 8px',
+            width: '44px',
+            height: '44px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
             lineHeight: '1',
           }}
         >
@@ -81,6 +85,7 @@ const PhotoChooser: React.FC<PhotoChooserProps> = ({
         >
           <button
             onClick={onCameraSelect}
+            className="touch-btn"
             style={{
               backgroundColor: '#4a7c59',
               color: '#fff',
@@ -92,18 +97,13 @@ const PhotoChooser: React.FC<PhotoChooserProps> = ({
               cursor: 'pointer',
               transition: 'background-color 0.2s',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#5a8c69';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#4a7c59';
-            }}
           >
             Take a Picture
           </button>
 
           <button
             onClick={onLibrarySelect}
+            className="touch-btn"
             style={{
               backgroundColor: '#555',
               color: '#fff',
@@ -114,12 +114,6 @@ const PhotoChooser: React.FC<PhotoChooserProps> = ({
               fontWeight: '500',
               cursor: 'pointer',
               transition: 'background-color 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#666';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#555';
             }}
           >
             Select from Library

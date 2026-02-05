@@ -48,7 +48,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       className="fixed inset-0 z-50 bg-black flex flex-col"
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 bg-stone-900/80 backdrop-blur-sm">
+      <div className="flex items-center justify-between p-4 bg-stone-900/80 backdrop-blur-sm" style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}>
         <h2 className="text-lg font-medium text-stone-100">
           Take a photo of your plant
         </h2>
@@ -108,7 +108,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
       {/* Capture controls */}
       {isActive && stream && (
-        <div className="absolute bottom-0 left-0 right-0 p-8 flex justify-center items-center bg-gradient-to-t from-black/80 to-transparent">
+        <div className="absolute bottom-0 left-0 right-0 p-8 flex justify-center items-center bg-gradient-to-t from-black/80 to-transparent" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
           <div className="flex items-center gap-8">
             {/* Cancel button */}
             <button

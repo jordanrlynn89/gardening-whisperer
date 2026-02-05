@@ -17,103 +17,103 @@ type PhotoState = 'none' | 'choosing_source' | 'capturing_camera' | 'selecting_l
 const STAGE_ORDER: JourneyStage[] = ['start', 'plant_id', 'symptoms', 'environment', 'care_history', 'complete'];
 
 function detectStageFromMessages(messages: { role: string; content: string }[]): JourneyStage {
-  let maxStageIndex = 0;
+  // Simplified stage detection based on message count and content patterns
+  // Progress through stages based on number of back-and-forth exchanges
+
+  if (messages.length === 0) return 'start';
+
+  let stageIndex = 0;
+  let userMessageCount = 0;
 
   for (const msg of messages) {
-    if (msg.role !== 'assistant') continue;
     const lower = msg.content.toLowerCase();
 
-    // Check stages from highest to lowest so we capture the furthest stage reached
+    if (msg.role === 'user') {
+      userMessageCount++;
+    }
 
-    // complete — AI gave diagnosis or wrapped up
+    if (msg.role !== 'assistant') continue;
+
+    // Check for completion/diagnosis - AI giving recommendations or diagnosis
     if (
       lower.includes('happy gardening') ||
       lower.includes("it's likely") ||
       lower.includes('i suspect') ||
       lower.includes('i think it') ||
-      lower.includes('i believe it') ||
-      lower.includes('i\'d recommend') ||
-      lower.includes('here\'s what') ||
-      lower.includes('my suggestion') ||
-      lower.includes('today, i\'d') ||
-      lower.includes('wraps up') ||
-      lower.includes('do today') ||
-      lower.includes('caused by') ||
       lower.includes('sounds like') ||
-      lower.includes('consistent with') ||
-      lower.includes('could be') ||
-      lower.includes('deficien') ||
-      lower.includes('end rot') ||
+      lower.includes('i\'d recommend') ||
+      lower.includes('my recommendation') ||
+      lower.includes('what to do today') ||
+      lower.includes('do today') ||
       lower.includes('root rot') ||
       lower.includes('fungal') ||
       lower.includes('bacterial') ||
+      lower.includes('deficien') ||
       lower.includes('overwater') ||
       lower.includes('underwater') ||
-      lower.includes('nutrient') ||
-      lower.includes('supplement') ||
-      lower.includes('treat') ||
-      lower.includes('remedy') ||
-      lower.includes('recover')
+      (lower.includes('caused by') && lower.length > 50) // diagnosis explanation
     ) {
-      maxStageIndex = Math.max(maxStageIndex, 5);
+      stageIndex = Math.max(stageIndex, 5);
     }
-
-    // care_history — AI is asking about watering/care/history
-    if (
+    // Check for care/watering questions
+    else if (
       lower.includes('water') ||
       lower.includes('fertiliz') ||
-      lower.includes('how long have you had') ||
-      lower.includes('when did you') ||
       lower.includes('care') ||
       lower.includes('routine') ||
-      lower.includes('repot') ||
-      lower.includes('recently')
+      lower.includes('how long have you had')
     ) {
-      maxStageIndex = Math.max(maxStageIndex, 4);
+      stageIndex = Math.max(stageIndex, 4);
     }
-
-    // environment — AI is asking about sun/location/conditions
-    if (
+    // Check for environment questions
+    else if (
       lower.includes('sun') ||
       lower.includes('light') ||
       lower.includes('indoor') ||
       lower.includes('outdoor') ||
-      lower.includes('shade') ||
-      lower.includes('temperature') ||
-      lower.includes('weather') ||
       lower.includes('where') ||
       lower.includes('soil') ||
-      lower.includes('drainage') ||
-      lower.includes('humid')
+      lower.includes('temperature')
     ) {
-      maxStageIndex = Math.max(maxStageIndex, 3);
+      stageIndex = Math.max(stageIndex, 3);
     }
-
-    // symptoms — AI is asking about what they see
-    if (
-      lower.includes('see') ||
-      lower.includes('look') ||
-      lower.includes('notic') ||
+    // Check for symptom questions
+    else if (
       lower.includes('symptom') ||
-      lower.includes('color') ||
       lower.includes('yellow') ||
       lower.includes('brown') ||
-      lower.includes('wilt') ||
       lower.includes('spot') ||
-      lower.includes('curl') ||
-      lower.includes('descri') ||
-      lower.includes('observ')
+      lower.includes('wilt') ||
+      lower.includes('droop') ||
+      lower.includes('color') ||
+      lower.includes('leaves') ||
+      lower.includes('describe') ||
+      lower.includes('seeing') ||
+      lower.includes('notice')
     ) {
-      maxStageIndex = Math.max(maxStageIndex, 2);
+      stageIndex = Math.max(stageIndex, 2);
     }
-
-    // plant_id — AI has acknowledged the conversation started
-    if (lower.includes('take a walk') || lower.includes('what') || lower.includes('tell me')) {
-      maxStageIndex = Math.max(maxStageIndex, 1);
+    // Check for plant_id (walk started)
+    else if (lower.includes('take a walk') || lower.includes('kind of plant')) {
+      stageIndex = Math.max(stageIndex, 1);
     }
   }
 
-  return STAGE_ORDER[maxStageIndex];
+  // Fallback: use message count to estimate stage if keywords didn't trigger
+  // After user speaks 2+ times, should be at least symptoms
+  if (userMessageCount >= 2 && stageIndex < 2) {
+    stageIndex = 2;
+  }
+  // After user speaks 3+ times, should be at least environment
+  if (userMessageCount >= 3 && stageIndex < 3) {
+    stageIndex = 3;
+  }
+  // After user speaks 4+ times, should be at least care_history
+  if (userMessageCount >= 4 && stageIndex < 4) {
+    stageIndex = 4;
+  }
+
+  return STAGE_ORDER[stageIndex];
 }
 
 export function VoiceLoop() {
@@ -156,6 +156,15 @@ export function VoiceLoop() {
     },
     onError: (err) => {
       setErrorMsg(err);
+    },
+    onWalkComplete: () => {
+      console.log('[VoiceLoop] Walk complete signal received');
+      setTimeout(() => {
+        disconnect();
+        stopAmbient();
+        setAppState('summary');
+        setVolume(0);
+      }, 2000);
     },
   });
 
@@ -275,27 +284,76 @@ export function VoiceLoop() {
   }, [userTranscript, photoState]);
 
   // Detect garden walk wrap-up — auto-show summary when AI says "happy gardening"
+  const wrapUpDetectedRef = useRef(false);
+  const wrapUpTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
-    if (appState !== 'active' || messages.length === 0) return;
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg.role === 'assistant' && lastMsg.content.toLowerCase().includes('happy gardening')) {
-      console.log('[VoiceLoop] Walk wrap-up detected, showing summary');
-      // Wait for AI to finish speaking before transitioning
-      const waitForEnd = setInterval(() => {
-        if (!isSpeaking) {
-          clearInterval(waitForEnd);
+    if (appState !== 'active' || wrapUpDetectedRef.current) return;
+
+    // Check ALL assistant messages for "happy gardening" phrase
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== 'assistant') continue;
+
+      const lower = msg.content.toLowerCase();
+      // Check for various wrap-up phrases
+      if (lower.includes('happy gardening') ||
+          lower.includes('happygardening') ||
+          (lower.includes('happy') && lower.includes('garden'))) {
+
+        console.log('[VoiceLoop] 🌟 HAPPY GARDENING detected in message:', msg.content);
+        wrapUpDetectedRef.current = true;
+
+        // Clear any existing timer
+        if (wrapUpTimerRef.current) {
+          clearTimeout(wrapUpTimerRef.current);
+        }
+
+        // Set timer
+        wrapUpTimerRef.current = setTimeout(() => {
+          console.log('[VoiceLoop] Transitioning to summary...');
           disconnect();
           stopAmbient();
           setAppState('summary');
           setVolume(0);
-        }
-      }, 300);
-      return () => clearInterval(waitForEnd);
+        }, 2000);
+
+        break; // Found it, stop checking
+      }
     }
-  }, [messages, appState, isSpeaking, disconnect, stopAmbient]);
+  }, [messages, appState, disconnect, stopAmbient]);
+
+  // Reset wrap-up flag when starting new walk
+  useEffect(() => {
+    if (appState === 'idle') {
+      wrapUpDetectedRef.current = false;
+      if (wrapUpTimerRef.current) {
+        clearTimeout(wrapUpTimerRef.current);
+        wrapUpTimerRef.current = null;
+      }
+    }
+  }, [appState]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (wrapUpTimerRef.current) {
+        clearTimeout(wrapUpTimerRef.current);
+      }
+    };
+  }, []);
 
   // Compute current walk stage from message transcripts
   const currentStage = messages.length > 0 ? detectStageFromMessages(messages) : ('start' as JourneyStage);
+
+  // Debug logging
+  useEffect(() => {
+    if (messages.length > 0) {
+      console.log('[Stage Detection] Current stage:', currentStage, '| Messages:', messages.length);
+      const lastMsg = messages[messages.length - 1];
+      console.log('[Stage Detection] Last message:', lastMsg.role, ':', lastMsg.content.substring(0, 100));
+    }
+  }, [currentStage, messages]);
 
   // Trigger walking animation on stage transitions
   useEffect(() => {
@@ -375,7 +433,7 @@ export function VoiceLoop() {
   };
 
   return (
-    <div className="relative w-full h-screen bg-stone-900 overflow-hidden">
+    <div className="relative w-full h-dvh bg-stone-900 overflow-hidden">
       <Visualizer volume={volume} isActive={appState === 'active'} />
 
       <div className="absolute inset-0 bg-gradient-to-b from-stone-900/80 via-transparent to-stone-900/90 pointer-events-none z-0" />
@@ -418,7 +476,7 @@ export function VoiceLoop() {
       {appState === 'active' && (
         <div className="relative z-10 flex flex-col h-full w-full">
           {/* Header with live indicator */}
-          <div className="absolute top-0 w-full p-6 flex justify-between items-start">
+          <div className="absolute top-0 w-full p-6 flex justify-between items-start" style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}>
             <div className="flex items-center gap-2">
               <div
                 className={`w-2 h-2 rounded-full ${
@@ -438,7 +496,7 @@ export function VoiceLoop() {
 
           {/* Live transcript */}
           {(userTranscript || aiTranscript) && (
-            <div className="absolute top-20 left-0 w-full flex justify-center px-6">
+            <div className="absolute left-0 w-full flex justify-center px-6" style={{ top: 'calc(5rem + env(safe-area-inset-top))' }}>
               <div className="max-w-[85%] p-3 rounded-2xl bg-stone-800/90 text-stone-300 border border-stone-700/50 backdrop-blur-sm">
                 {userTranscript && (
                   <p className="text-sm leading-relaxed">
@@ -458,7 +516,7 @@ export function VoiceLoop() {
 
           {/* Hands-free indicator */}
           {isListening && !isSpeaking && (
-            <div className="absolute bottom-24 left-0 w-full flex flex-col items-center gap-4 px-6">
+            <div className="absolute left-0 w-full flex flex-col items-center gap-4 px-6" style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
               <div className="flex items-center gap-2 text-green-500">
                 <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
                 <span className="text-sm font-bold uppercase tracking-wide">Listening — just speak</span>
@@ -468,7 +526,7 @@ export function VoiceLoop() {
 
           {/* Speaking indicator */}
           {isSpeaking && (
-            <div className="absolute bottom-24 left-0 w-full flex flex-col items-center gap-4 px-6">
+            <div className="absolute left-0 w-full flex flex-col items-center gap-4 px-6" style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
               <div className="flex items-center gap-3 text-blue-400">
                 <div className="flex gap-1">
                   <div className="w-1.5 h-4 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -480,12 +538,13 @@ export function VoiceLoop() {
             </div>
           )}
 
+
           {/* End Walk Button */}
-          <div className="absolute bottom-8 right-6 z-20">
+          <div className="absolute right-6 z-20 flex flex-col gap-4" style={{ bottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
             <div className="flex flex-col items-center gap-2">
               <button
                 onClick={handleEnd}
-                className="w-14 h-14 bg-red-500/20 hover:bg-red-500/40 border border-red-500/50 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-300"
+                className="w-14 h-14 bg-red-500/20 active:bg-red-500/40 border border-red-500/50 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-300"
               >
                 <svg className="w-6 h-6 text-red-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -496,11 +555,11 @@ export function VoiceLoop() {
           </div>
 
           {/* Photo button - always available */}
-          <div className="absolute bottom-8 left-6 z-20">
+          <div className="absolute left-6 z-20" style={{ bottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
             <div className="flex flex-col items-center gap-2">
               <button
                 onClick={() => setPhotoState('choosing_source')}
-                className="w-14 h-14 bg-green-500/20 hover:bg-green-500/40 border border-green-500/50 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-300"
+                className="w-14 h-14 bg-green-500/20 active:bg-green-500/40 border border-green-500/50 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-300"
               >
                 <svg className="w-6 h-6 text-green-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -555,7 +614,7 @@ export function VoiceLoop() {
           <div className="w-full max-w-md bg-stone-800/50 backdrop-blur-xl border border-stone-700/50 rounded-3xl p-8 shadow-2xl">
             <button
               onClick={handleReset}
-              className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-stone-700/50 hover:bg-stone-600/80 text-stone-400 hover:text-stone-200 transition-all duration-200"
+              className="absolute top-4 right-4 w-11 h-11 flex items-center justify-center rounded-full bg-stone-700/50 active:bg-stone-600/80 text-stone-400 active:text-stone-200 transition-all duration-200"
               aria-label="Close summary"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -579,7 +638,7 @@ export function VoiceLoop() {
               </div>
             </div>
 
-            <div className="h-64 overflow-y-auto bg-stone-900/50 rounded-xl p-4 mb-6 border border-stone-800 text-sm text-stone-300 leading-relaxed">
+            <div className="max-h-[40vh] overflow-y-auto bg-stone-900/50 rounded-xl p-4 mb-6 border border-stone-800 text-sm text-stone-300 leading-relaxed selectable-text">
               {messages.length > 0 ? (
                 messages.map((m, i) => (
                   <div key={i} className="mb-3">
@@ -597,7 +656,7 @@ export function VoiceLoop() {
             <div className="flex gap-4">
               <button
                 onClick={handleCopySummary}
-                className="flex-1 py-3 px-4 bg-stone-700 hover:bg-stone-600 rounded-xl font-medium text-stone-200 transition-colors flex items-center justify-center gap-2"
+                className="flex-1 py-3 px-4 bg-stone-700 active:bg-stone-600 rounded-xl font-medium text-stone-200 transition-colors flex items-center justify-center gap-2"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
@@ -611,7 +670,7 @@ export function VoiceLoop() {
               </button>
               <button
                 onClick={handleReset}
-                className="flex-1 py-3 px-4 bg-green-700 hover:bg-green-600 rounded-xl font-medium text-white transition-colors"
+                className="flex-1 py-3 px-4 bg-green-700 active:bg-green-600 rounded-xl font-medium text-white transition-colors"
               >
                 Start New
               </button>
