@@ -50,6 +50,7 @@ npm test -- --watch   # Watch mode during development
 4. **Skip planning for simple fixes**: Direct implementation is fine for typos, single-line changes, or clear bug fixes
 5. **Verify immediately**: Run tests after every change
 6. **Course-correct early**: Stop and redirect as soon as a test fails unexpectedly
+7. **Verify runtime behavior**: After implementing a multi-file plan, restart the server and verify the full flow end-to-end before marking complete. Don't stop at 'no TypeScript errors' — confirm runtime behavior works as expected
 
 ### Context Management
 - Run `/clear` between unrelated tasks (e.g., after fixing a bug, before starting a new feature)
