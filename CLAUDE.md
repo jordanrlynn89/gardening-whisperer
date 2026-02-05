@@ -69,6 +69,12 @@ npm test -- --watch   # Watch mode during development
 # Start development server
 npm run dev
 
+# Start full dev environment (server + ngrok tunnel)
+npm run dev:full
+
+# Stop all dev services
+npm run dev:stop
+
 # Run tests
 npm test
 
@@ -91,6 +97,21 @@ npm run lint
 2. Add your API keys:
    - Gemini API: https://ai.google.dev/
    - ElevenLabs API: https://elevenlabs.io/
+
+## Infrastructure & Tunneling
+
+**ngrok Configuration:**
+When configuring ngrok or tunnel services, always use HTTPS for the public URL and HTTPS for the local target (this project uses a custom HTTPS server). Double-check protocol in both the tunnel config and any WebSocket connection URLs (`wss://` vs `ws://`).
+
+**Automated Setup:**
+Use `npm run dev:full` to automatically start the HTTPS server and ngrok tunnel with correct configuration. This eliminates HTTP/HTTPS protocol mismatches and validates the environment before starting.
+
+**Manual Verification:**
+If issues arise, verify:
+- Server is running on HTTPS: `https://localhost:3003`
+- ngrok tunnel points to HTTPS backend: `ngrok http https://localhost:3003`
+- WebSocket connections use `wss://` protocol
+- SSL certificates exist in `.cert/` directory
 
 ## Core Architecture
 
