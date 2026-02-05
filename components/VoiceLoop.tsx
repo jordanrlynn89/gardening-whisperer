@@ -12,9 +12,201 @@ import PhotoLibrary from './PhotoLibrary';
 type AppState = 'idle' | 'connecting' | 'active' | 'summary' | 'error';
 type PhotoState = 'none' | 'choosing_source' | 'capturing_camera' | 'selecting_library' | 'processing';
 
+interface SummaryData {
+  plantName: string;
+  plantIdentified: string;
+  symptomsNoted: string;
+  environmentReviewed: string;
+  careHistoryDiscussed: string;
+  diagnosisGiven: string;
+  careRecommendations: {
+    light: string;
+    lightDetail: string;
+    water: string;
+    waterDetail: string;
+    temp: string;
+    tempDetail: string;
+  };
+}
+
 // Detect what stage the walk is in by scanning AI messages for stage-specific questions.
 // Stages advance progressively — once we pass a stage, we don't go back.
 const STAGE_ORDER: JourneyStage[] = ['start', 'plant_id', 'symptoms', 'environment', 'care_history', 'complete'];
+
+// Extract plant name from conversation
+function extractPlantName(messages: { role: string; content: string }[]): string {
+  const plantKeywords = ['tomato', 'basil', 'rose', 'orchid', 'succulent', 'fern', 'cactus', 'monstera', 'pothos', 'snake plant', 'spider plant', 'aloe', 'lavender', 'mint', 'pepper', 'cucumber', 'lettuce', 'strawberry', 'blueberry', 'herb'];
+
+  for (const msg of messages) {
+    const lower = msg.content.toLowerCase();
+    for (const plant of plantKeywords) {
+      if (lower.includes(plant)) {
+        return plant.charAt(0).toUpperCase() + plant.slice(1);
+      }
+    }
+  }
+
+  return 'Plant';
+}
+
+// Extract summary for each stage
+function extractStageSummary(messages: { role: string; content: string }[], stage: 'plant_id' | 'symptoms' | 'environment' | 'care_history' | 'diagnosis'): string {
+  const userMessages = messages.filter(m => m.role === 'user').map(m => m.content);
+  const aiMessages = messages.filter(m => m.role === 'assistant').map(m => m.content);
+
+  if (stage === 'plant_id') {
+    const plantName = extractPlantName(messages);
+    return plantName !== 'Plant' ? `${plantName} plant identified` : 'Plant type discussed';
+  }
+
+  if (stage === 'symptoms') {
+    const symptomKeywords = ['yellow', 'brown', 'spot', 'wilt', 'droop', 'curl', 'dying', 'pale', 'discolor'];
+    const found = userMessages.find(m => symptomKeywords.some(kw => m.toLowerCase().includes(kw)));
+    if (found) {
+      const match = found.match(/\b(yellow|brown|spot|wilt|droop|curl|dying|pale|discolor)\w*/gi);
+      return match ? match.join(', ') : 'Symptoms observed and noted';
+    }
+    return 'Plant health discussed';
+  }
+
+  if (stage === 'environment') {
+    const envKeywords = {
+      'full sun': 'Full sun location',
+      'partial sun': 'Partial sun',
+      'shade': 'Shaded area',
+      'indoor': 'Indoor',
+      'outdoor': 'Outdoor',
+      'window': 'Near window',
+      'garden': 'Garden bed',
+      'pot': 'Container/pot',
+    };
+
+    const lower = userMessages.join(' ').toLowerCase();
+    for (const [keyword, summary] of Object.entries(envKeywords)) {
+      if (lower.includes(keyword)) {
+        return summary;
+      }
+    }
+    return 'Growing location discussed';
+  }
+
+  if (stage === 'care_history') {
+    const lower = userMessages.join(' ').toLowerCase();
+
+    // Look for watering frequency
+    if (lower.includes('daily') || lower.includes('every day')) {
+      return 'Waters daily';
+    }
+    if (lower.includes('week')) {
+      const match = lower.match(/(\d+)\s*(time|x)?\s*(a|per)?\s*week/);
+      if (match) {
+        return `Waters ${match[1]}x weekly`;
+      }
+      return 'Weekly watering';
+    }
+    if (lower.includes('fertiliz')) {
+      return 'Fertilizing routine discussed';
+    }
+
+    return 'Watering routine discussed';
+  }
+
+  if (stage === 'diagnosis') {
+    // Look for AI diagnosis in messages
+    const diagnosisKeywords = ['likely', 'suspect', 'appears to be', 'sounds like', 'probably', 'recommend', 'suggest'];
+    const diagnosisMsg = aiMessages.find(m => {
+      const lower = m.toLowerCase();
+      return diagnosisKeywords.some(kw => lower.includes(kw)) &&
+             (lower.includes('root rot') || lower.includes('nutrient') || lower.includes('deficien') ||
+              lower.includes('fungal') || lower.includes('pest') || lower.includes('water'));
+    });
+
+    if (diagnosisMsg) {
+      // Extract first sentence that contains diagnosis
+      const sentences = diagnosisMsg.split(/[.!?]/);
+      for (const sentence of sentences) {
+        const lower = sentence.toLowerCase();
+        if (diagnosisKeywords.some(kw => lower.includes(kw))) {
+          const cleaned = sentence.trim();
+          return cleaned.substring(0, 80) + (cleaned.length > 80 ? '...' : '');
+        }
+      }
+    }
+
+    return 'Assessment and recommendations provided';
+  }
+
+  return 'Discussed';
+}
+
+// Get care recommendations based on plant type
+function getCareRecommendations(plantName: string): SummaryData['careRecommendations'] {
+  const lower = plantName.toLowerCase();
+
+  // Vegetables
+  if (lower.includes('tomato')) {
+    return { light: 'Full Sun', lightDetail: '6-8h/day', water: 'Regular', waterDetail: '1-2"/week', temp: '70-85°F', tempDetail: 'Warm' };
+  }
+  if (lower.includes('pepper')) {
+    return { light: 'Full Sun', lightDetail: '6-8h/day', water: 'Moderate', waterDetail: '1"/week', temp: '70-80°F', tempDetail: 'Warm' };
+  }
+  if (lower.includes('lettuce') || lower.includes('basil') || lower.includes('mint')) {
+    return { light: 'Part Sun', lightDetail: '4-6h/day', water: 'Regular', waterDetail: '1"/week', temp: '60-70°F', tempDetail: 'Cool' };
+  }
+
+  // Succulents & Cacti
+  if (lower.includes('succulent') || lower.includes('cactus') || lower.includes('aloe')) {
+    return { light: 'Bright', lightDetail: '6h/day', water: 'Low', waterDetail: 'Every 2wks', temp: '65-75°F', tempDetail: 'Warm' };
+  }
+
+  // Tropical houseplants
+  if (lower.includes('monstera') || lower.includes('pothos') || lower.includes('philodendron')) {
+    return { light: 'Bright Indirect', lightDetail: '4-6h/day', water: 'Moderate', waterDetail: 'Weekly', temp: '65-80°F', tempDetail: 'Warm' };
+  }
+
+  // Snake plant
+  if (lower.includes('snake')) {
+    return { light: 'Low-Bright', lightDetail: 'Flexible', water: 'Low', waterDetail: 'Every 2wks', temp: '60-80°F', tempDetail: 'Flexible' };
+  }
+
+  // Ferns
+  if (lower.includes('fern')) {
+    return { light: 'Indirect', lightDetail: '3-4h/day', water: 'High', waterDetail: 'Keep moist', temp: '60-75°F', tempDetail: 'Cool-Warm' };
+  }
+
+  // Herbs
+  if (lower.includes('lavender') || lower.includes('rosemary')) {
+    return { light: 'Full Sun', lightDetail: '6-8h/day', water: 'Low', waterDetail: 'Dry out', temp: '60-70°F', tempDetail: 'Cool' };
+  }
+
+  // Roses
+  if (lower.includes('rose')) {
+    return { light: 'Full Sun', lightDetail: '6h/day', water: 'Regular', waterDetail: '1-2"/week', temp: '60-75°F', tempDetail: 'Moderate' };
+  }
+
+  // Orchids
+  if (lower.includes('orchid')) {
+    return { light: 'Bright Indirect', lightDetail: '4-6h/day', water: 'Low', waterDetail: 'Weekly', temp: '65-80°F', tempDetail: 'Warm' };
+  }
+
+  // Default for unknown plants
+  return { light: 'Bright', lightDetail: '4-6h/day', water: 'Moderate', waterDetail: 'Weekly', temp: '65-75°F', tempDetail: 'Moderate' };
+}
+
+// Generate complete summary data
+function generateSummaryData(messages: { role: string; content: string }[]): SummaryData {
+  const plantName = extractPlantName(messages);
+
+  return {
+    plantName,
+    plantIdentified: extractStageSummary(messages, 'plant_id'),
+    symptomsNoted: extractStageSummary(messages, 'symptoms'),
+    environmentReviewed: extractStageSummary(messages, 'environment'),
+    careHistoryDiscussed: extractStageSummary(messages, 'care_history'),
+    diagnosisGiven: extractStageSummary(messages, 'diagnosis'),
+    careRecommendations: getCareRecommendations(plantName),
+  };
+}
 
 function detectStageFromMessages(messages: { role: string; content: string }[]): JourneyStage {
   // Simplified stage detection based on message count and content patterns
@@ -122,6 +314,8 @@ export function VoiceLoop() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [photoState, setPhotoState] = useState<PhotoState>('none');
   const [isWalking, setIsWalking] = useState(false);
+  const [showFullConversation, setShowFullConversation] = useState(false);
+  const [copiedSummary, setCopiedSummary] = useState(false);
   const prevStageRef = useRef<JourneyStage>('start');
 
   const { startAmbient, stopAmbient, duck, unduck } = useAmbientSound({
@@ -158,8 +352,10 @@ export function VoiceLoop() {
       setErrorMsg(err);
     },
     onWalkComplete: () => {
-      console.log('[VoiceLoop] Walk complete signal received');
+      console.log('[VoiceLoop] 🌟 Walk complete signal received from server');
+      console.log('[VoiceLoop] Summary will appear in 2 seconds...');
       setTimeout(() => {
+        console.log('[VoiceLoop] Transitioning to summary now');
         disconnect();
         stopAmbient();
         setAppState('summary');
@@ -283,65 +479,9 @@ export function VoiceLoop() {
     }
   }, [userTranscript, photoState]);
 
-  // Detect garden walk wrap-up — auto-show summary when AI says "happy gardening"
-  const wrapUpDetectedRef = useRef(false);
-  const wrapUpTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  useEffect(() => {
-    if (appState !== 'active' || wrapUpDetectedRef.current) return;
-
-    // Check ALL assistant messages for "happy gardening" phrase
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role !== 'assistant') continue;
-
-      const lower = msg.content.toLowerCase();
-      // Check for various wrap-up phrases
-      if (lower.includes('happy gardening') ||
-          lower.includes('happygardening') ||
-          (lower.includes('happy') && lower.includes('garden'))) {
-
-        console.log('[VoiceLoop] 🌟 HAPPY GARDENING detected in message:', msg.content);
-        wrapUpDetectedRef.current = true;
-
-        // Clear any existing timer
-        if (wrapUpTimerRef.current) {
-          clearTimeout(wrapUpTimerRef.current);
-        }
-
-        // Set timer
-        wrapUpTimerRef.current = setTimeout(() => {
-          console.log('[VoiceLoop] Transitioning to summary...');
-          disconnect();
-          stopAmbient();
-          setAppState('summary');
-          setVolume(0);
-        }, 2000);
-
-        break; // Found it, stop checking
-      }
-    }
-  }, [messages, appState, disconnect, stopAmbient]);
-
-  // Reset wrap-up flag when starting new walk
-  useEffect(() => {
-    if (appState === 'idle') {
-      wrapUpDetectedRef.current = false;
-      if (wrapUpTimerRef.current) {
-        clearTimeout(wrapUpTimerRef.current);
-        wrapUpTimerRef.current = null;
-      }
-    }
-  }, [appState]);
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (wrapUpTimerRef.current) {
-        clearTimeout(wrapUpTimerRef.current);
-      }
-    };
-  }, []);
+  // Note: Summary auto-appears when AI says "happy gardening"
+  // Detection happens server-side in gemini-live-proxy.js which sends a 'walk_complete' message
+  // This triggers the onWalkComplete callback below
 
   // Compute current walk stage from message transcripts
   const currentStage = messages.length > 0 ? detectStageFromMessages(messages) : ('start' as JourneyStage);
@@ -409,6 +549,7 @@ export function VoiceLoop() {
     setAppState('idle');
     setVolume(0);
     setPhotoState('none');
+    setCopiedSummary(false);
   };
 
   const handleCameraSelect = () => {
@@ -609,75 +750,259 @@ export function VoiceLoop() {
       )}
 
       {/* SUMMARY */}
-      {appState === 'summary' && (
-        <div className="relative z-10 flex flex-col items-center justify-center h-full px-6 animate-in slide-in-from-bottom duration-500">
-          <div className="w-full max-w-md bg-stone-800/50 backdrop-blur-xl border border-stone-700/50 rounded-3xl p-8 shadow-2xl">
+      {appState === 'summary' && (() => {
+        const summaryData = generateSummaryData(messages);
+        return (
+        <div className="relative z-10 flex flex-col items-center justify-start h-full overflow-y-auto px-4 py-8 animate-in slide-in-from-bottom duration-500">
+          <div className="w-full max-w-md">
+            {/* Close button - fixed position */}
             <button
               onClick={handleReset}
-              className="absolute top-4 right-4 w-11 h-11 flex items-center justify-center rounded-full bg-stone-700/50 active:bg-stone-600/80 text-stone-400 active:text-stone-200 transition-all duration-200"
+              className="absolute top-6 right-6 w-11 h-11 flex items-center justify-center rounded-full bg-stone-800/80 backdrop-blur-sm active:bg-stone-700 text-stone-400 active:text-stone-200 transition-all duration-200 z-20"
               aria-label="Close summary"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-3 bg-green-900/50 rounded-xl text-green-400">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
-                  />
+
+            {/* Plant Hero Image Card */}
+            <div className="bg-gradient-to-br from-green-800/30 to-green-900/20 backdrop-blur-xl border border-green-700/30 rounded-3xl p-6 mb-6 text-center shadow-2xl">
+              {/* Garden planting illustration */}
+              <div className="w-48 h-48 mx-auto mb-4 bg-gradient-to-br from-green-600/20 to-green-800/20 rounded-2xl flex items-center justify-center p-6">
+                <svg className="w-full h-full" viewBox="0 0 100 100" fill="#22c55e" opacity="0.8">
+                  <path d="M92.8,82.1c-0.3-0.2-0.6-0.4-0.9-0.6c-0.3-0.2-0.8-0.7-1.2-1.2c-0.8-0.9-1.7-1.9-3-2.4c-0.9-0.3-1.9-0.2-2.8-0.1    c-0.7,0.1-1.4,0.2-2,0.1c-0.5-0.1-1-0.5-1.6-0.9c-0.8-0.6-1.8-1.2-2.9-1.3c-1-0.1-1.9,0.2-2.8,0.5c-0.7,0.2-1.4,0.5-1.9,0.4    c-0.5,0-1.1-0.3-1.8-0.7C71,75.5,70.1,75,69,75c-1.1,0-2,0.5-2.9,0.9C66,75.9,66,76,65.9,76c1.4-1.7,2.7-3.5,3.7-5.4l3.3-6.4    c0.1-0.2,0.1-0.5,0.1-0.8s-0.3-0.5-0.5-0.6l-6.2-3.2l7.4-14.2c0.1-0.3,0.4-0.5,0.7-0.5l3-0.5c0.9-0.2,1.7-0.7,2.2-1.6l3.2-6.2    c0.4-0.7,0.4-1.5,0.2-2.3c-0.2-0.8-0.8-1.4-1.5-1.8L72.5,28c-0.7-0.4-1.5-0.4-2.3-0.2c-0.8,0.2-1.4,0.8-1.8,1.5l-3.2,6.2    c-0.4,0.8-0.4,1.8,0,2.7l1.3,2.7c0.1,0.3,0.1,0.6,0,0.9l-7.4,14.2l-6.2-3.2c-0.5-0.3-1.1-0.1-1.3,0.4l-3.3,6.4    c-2.9,5.6-3.8,12.1-2.7,18.4c-0.2,0-0.5,0-0.7-0.1c-0.5-0.1-1-0.5-1.6-0.9c-0.8-0.6-1.8-1.2-2.9-1.3c-1-0.1-1.9,0.2-2.8,0.5    c-0.7,0.2-1.3,0.5-1.9,0.4c-0.5,0-1.1-0.3-1.8-0.7c-0.3-0.1-0.6-0.3-0.9-0.4V60.4l3.4-3.4c1.1-0.1,5.4-0.8,7.3-4.8c0,0,0,0,0,0    c2.1-4.2,1-11.1,0.9-11.4c-0.1-0.3-0.3-0.6-0.5-0.7c-0.3-0.1-0.6-0.1-0.9,0c-0.3,0.1-6.4,3.4-8.5,7.6c-1.7,3.3-0.6,6.6,0.1,8    L33,57.6V42.8c1.6-0.7,2.6-2.9,3-5.1c1.4,1,3.1,1.7,4.5,1.7c0.8,0,1.5-0.2,2.1-0.8c0,0,0,0,0,0c1.5-1.5,0.6-4.4-0.9-6.6    c2.6-0.5,5.3-1.9,5.3-4c0-2.1-2.7-3.5-5.3-4c1.5-2.2,2.4-5.1,0.9-6.6c-1.5-1.5-4.4-0.6-6.6,0.9c-0.5-2.6-1.9-5.3-4-5.3    s-3.5,2.7-4,5.3c-2.2-1.5-5.1-2.4-6.6-0.9c-1.5,1.5-0.6,4.4,0.9,6.6c-2.6,0.5-5.3,1.9-5.3,4s2.7,3.5,5.3,4    c-1.5,2.2-2.4,5.1-0.9,6.6c0.5,0.5,1.3,0.8,2.1,0.8c1.4,0,3.1-0.7,4.5-1.7c0.4,2.2,1.5,4.4,3,5.1v19.8l-1.8-1.8    c0.7-1.5,1.7-4.7,0.1-8c-2.1-4.2-8.2-7.5-8.5-7.6c-0.3-0.2-0.6-0.2-0.9,0c-0.3,0.1-0.5,0.4-0.5,0.7c0,0.3-1.1,7.2,0.9,11.4    c0,0,0,0,0,0c2,3.9,6.3,4.6,7.3,4.8l3.4,3.4V75c-1.1,0-2,0.5-2.9,0.9c-0.6,0.3-1.3,0.6-1.8,0.7c-0.6,0-1.2-0.2-1.9-0.4    c-0.9-0.3-1.8-0.6-2.8-0.5c-1.1,0.2-2,0.8-2.9,1.3c-0.6,0.4-1.2,0.8-1.6,0.9c-0.6,0.1-1.3,0-2-0.1c-0.9-0.1-1.9-0.3-2.8,0.1    c-1.3,0.5-2.2,1.5-3,2.4c-0.4,0.5-0.8,0.9-1.2,1.2c-0.3,0.2-0.6,0.4-0.9,0.6C5.6,83.1,4,84.1,4,86c0,0.6,0.4,1,1,1h38h14h38    c0.6,0,1-0.4,1-1C96,84.2,94.4,83.1,92.8,82.1z M36.5,48.6c1.3-2.6,4.5-4.8,6.3-6c0.2,2.1,0.3,6.1-0.9,8.7v0    c-1.3,2.6-4,3.4-5.3,3.6C36.1,53.8,35.3,51.2,36.5,48.6z M22.1,56.3L22.1,56.3c-1.3-2.6-1.1-6.6-0.9-8.7c1.8,1.1,5.1,3.4,6.3,6    c1.3,2.6,0.4,5.2-0.1,6.3C26.1,59.7,23.3,58.9,22.1,56.3z M33.4,31c-0.1,0.1-0.2,0.1-0.3,0.1c-0.7,0.2-1.4,0.2-2.2,0    c-0.1,0-0.2-0.1-0.3-0.1c0,0,0,0,0,0c0,0,0,0,0,0c-0.7-0.3-1.2-0.8-1.5-1.5c0,0,0,0,0,0c0,0,0,0,0,0c-0.1-0.1-0.1-0.2-0.1-0.3    c0,0,0,0,0,0c-0.1-0.4-0.2-0.7-0.2-1.1s0.1-0.7,0.2-1.1c0-0.1,0.1-0.2,0.1-0.3c0,0,0,0,0,0c0,0,0,0,0,0c0.3-0.7,0.8-1.2,1.5-1.5    c0,0,0,0,0,0c0,0,0,0,0,0c0.1-0.1,0.2-0.1,0.3-0.1c0.7-0.2,1.4-0.2,2.2,0c0.1,0,0.2,0.1,0.3,0.1c0,0,0,0,0,0c0,0,0,0,0,0    c0.7,0.3,1.2,0.8,1.5,1.5c0,0,0,0,0,0c0,0,0,0,0,0c0.1,0.1,0.1,0.2,0.1,0.3c0.1,0.4,0.2,0.7,0.2,1.1s-0.1,0.7-0.2,1.1    c0,0.1-0.1,0.2-0.1,0.3c0,0,0,0,0,0c0,0,0,0,0,0C34.6,30.1,34.1,30.6,33.4,31C33.4,31,33.4,31,33.4,31C33.4,31,33.4,31,33.4,31z     M41.2,37.2L41.2,37.2c-0.5,0.5-3-0.1-5-1.8c0-0.1,0-0.1,0-0.2c0-0.2,0-0.5-0.1-0.7c0-0.1,0-0.2,0-0.3c0-0.2-0.1-0.4-0.1-0.5    c0-0.1,0-0.2-0.1-0.3c-0.1-0.2-0.1-0.3-0.2-0.5c0-0.1,0-0.1-0.1-0.2c-0.1-0.2-0.2-0.4-0.3-0.6c0,0,0,0,0,0    c0.3-0.2,0.5-0.4,0.7-0.7c0,0,0,0,0,0c0.2,0.1,0.4,0.2,0.6,0.3c0.1,0,0.1,0,0.2,0.1c0.2,0.1,0.3,0.1,0.5,0.2c0.1,0,0.2,0,0.3,0.1    c0.2,0,0.3,0.1,0.5,0.1c0.1,0,0.2,0,0.3,0c0.2,0,0.4,0,0.7,0.1c0.1,0,0.1,0,0.2,0C41.1,34.2,41.7,36.6,41.2,37.2z M45,28    c0,0.8-2.4,2.2-5.2,2.2c0,0-0.1,0-0.1,0c0,0-0.1,0-0.1,0c-0.3,0-0.6,0-0.9-0.1c-0.1,0-0.2,0-0.2,0c-0.2,0-0.4-0.1-0.5-0.1    c-0.1,0-0.2,0-0.2-0.1c-0.2-0.1-0.3-0.1-0.4-0.2c0,0-0.1-0.1-0.1-0.1c0,0,0,0,0,0c0.2-0.5,0.3-1.1,0.3-1.6c0-0.5-0.1-1.1-0.3-1.6    c0,0,0,0,0,0c0,0,0.1-0.1,0.1-0.1c0.1-0.1,0.3-0.1,0.4-0.2c0.1,0,0.1-0.1,0.2-0.1c0.2,0,0.3-0.1,0.5-0.1c0.1,0,0.2,0,0.2,0    c0.3,0,0.6-0.1,0.9-0.1c0,0,0.1,0,0.1,0c0,0,0.1,0,0.1,0C42.6,25.8,45,27.2,45,28z M41.2,18.8c0.5,0.5-0.1,3-1.8,5    c-0.1,0-0.2,0-0.2,0c-0.2,0-0.5,0-0.7,0.1c-0.1,0-0.2,0-0.3,0c-0.2,0-0.4,0.1-0.5,0.1c-0.1,0-0.2,0-0.3,0.1    c-0.2,0.1-0.3,0.1-0.5,0.2c-0.1,0-0.1,0-0.2,0.1c-0.2,0.1-0.4,0.2-0.6,0.3c0,0,0,0,0,0c-0.2-0.3-0.4-0.5-0.7-0.7c0,0,0,0,0,0    c0.1-0.2,0.2-0.4,0.3-0.6c0-0.1,0-0.1,0.1-0.2c0.1-0.2,0.1-0.3,0.2-0.5c0-0.1,0-0.2,0.1-0.3c0-0.2,0.1-0.3,0.1-0.5    c0-0.1,0-0.2,0-0.3c0-0.2,0-0.4,0.1-0.7c0-0.1,0-0.1,0-0.2C38.2,18.9,40.6,18.3,41.2,18.8z M32,15c0.8,0,2.2,2.4,2.2,5.2    c0,0,0,0.1,0,0.1c0,0,0,0.1,0,0.1c0,0.3,0,0.6-0.1,0.9c0,0.1,0,0.2,0,0.2c0,0.2-0.1,0.4-0.1,0.5c0,0.1,0,0.2-0.1,0.2    c-0.1,0.2-0.1,0.3-0.2,0.4c0,0,0,0.1-0.1,0.1c0,0,0,0,0,0c-0.5-0.2-1.1-0.3-1.6-0.3c-0.5,0-1.1,0.1-1.6,0.3c0,0,0,0,0,0    c0,0-0.1-0.1-0.1-0.1c-0.1-0.1-0.2-0.3-0.2-0.4c0-0.1-0.1-0.1-0.1-0.2c0-0.2-0.1-0.3-0.1-0.5c0-0.1,0-0.2,0-0.2    c0-0.3-0.1-0.6-0.1-0.9c0,0,0-0.1,0-0.1c0,0,0-0.1,0-0.1C29.8,17.4,31.2,15,32,15z M22.8,18.8c0.5-0.5,3,0.1,5,1.8    c0,0.1,0,0.1,0,0.2c0,0.2,0,0.5,0.1,0.7c0,0.1,0,0.2,0,0.3c0,0.2,0.1,0.4,0.1,0.5c0,0.1,0,0.2,0.1,0.3c0.1,0.2,0.1,0.3,0.2,0.5    c0,0.1,0,0.1,0.1,0.2c0.1,0.2,0.2,0.4,0.3,0.6c0,0,0,0,0,0c-0.3,0.2-0.5,0.4-0.7,0.7c0,0,0,0,0,0c-0.2-0.1-0.4-0.2-0.6-0.3    c-0.1,0-0.1,0-0.2-0.1c-0.2-0.1-0.3-0.1-0.5-0.2c-0.1,0-0.2,0-0.3-0.1c-0.2,0-0.3-0.1-0.5-0.1c-0.1,0-0.2,0-0.3,0    c-0.2,0-0.4,0-0.7-0.1c-0.1,0-0.1,0-0.2,0C22.9,21.8,22.3,19.4,22.8,18.8z M19,28c0-0.8,2.4-2.2,5.2-2.2c0,0,0.1,0,0.1,0    c0,0,0.1,0,0.1,0c0.3,0,0.6,0,0.9,0.1c0.1,0,0.2,0,0.2,0c0.2,0,0.4,0.1,0.5,0.1c0.1,0,0.2,0,0.2,0.1c0.2,0.1,0.3,0.1,0.4,0.2    c0,0,0.1,0.1,0.1,0.1c0,0,0,0,0,0c-0.2,0.5-0.3,1.1-0.3,1.6s0.1,1.1,0.3,1.6c0,0,0,0,0,0c0,0-0.1,0.1-0.1,0.1    c-0.1,0.1-0.3,0.1-0.4,0.2c-0.1,0-0.1,0.1-0.2,0.1c-0.2,0-0.3,0.1-0.5,0.1c-0.1,0-0.2,0-0.2,0c-0.3,0-0.6,0.1-0.9,0.1    c0,0-0.1,0-0.1,0c0,0-0.1,0-0.1,0C21.4,30.2,19,28.8,19,28z M22.8,37.2c-0.5-0.5,0.1-3,1.8-5c0.1,0,0.2,0,0.2,0    c0.2,0,0.5,0,0.7-0.1c0.1,0,0.2,0,0.3,0c0.2,0,0.4-0.1,0.5-0.1c0.1,0,0.2,0,0.3-0.1c0.2-0.1,0.3-0.1,0.5-0.2c0.1,0,0.1,0,0.2-0.1    c0.2-0.1,0.4-0.2,0.6-0.3c0,0,0,0,0,0c0.2,0.3,0.4,0.5,0.7,0.7c0,0,0,0,0,0c-0.1,0.2-0.2,0.4-0.3,0.6c0,0.1,0,0.1-0.1,0.2    c-0.1,0.2-0.1,0.3-0.2,0.5c0,0.1,0,0.2-0.1,0.3c0,0.2-0.1,0.3-0.1,0.5c0,0.1,0,0.2,0,0.3c0,0.2,0,0.4-0.1,0.7c0,0.1,0,0.1,0,0.2    C25.8,37.1,23.3,37.7,22.8,37.2z M29.8,35.8c0,0,0-0.1,0-0.1c0,0,0-0.1,0-0.1c0-0.3,0-0.6,0.1-0.9c0-0.1,0-0.2,0-0.2    c0-0.2,0.1-0.4,0.1-0.5c0-0.1,0-0.2,0.1-0.2c0.1-0.2,0.1-0.3,0.2-0.4c0,0,0-0.1,0.1-0.1c0,0,0,0,0,0c1.1,0.3,2.2,0.3,3.2,0    c0,0,0,0,0,0c0,0,0.1,0.1,0.1,0.1c0.1,0.1,0.2,0.3,0.2,0.4c0,0.1,0.1,0.1,0.1,0.2c0,0.2,0.1,0.3,0.1,0.5c0,0.1,0,0.2,0,0.2    c0,0.3,0.1,0.6,0.1,0.9c0,0,0,0.1,0,0.1c0,0,0,0.1,0,0.1C34.2,38.6,32.8,41,32,41S29.8,38.6,29.8,35.8z M60.9,56.9l7.4-14.2    c0.4-0.8,0.4-1.8,0-2.7L67,37.3c-0.1-0.3-0.1-0.6,0-0.9l3.2-6.2c0.1-0.2,0.3-0.4,0.6-0.5c0.3-0.1,0.5-0.1,0.8,0.1l8.9,4.6    c0.2,0.1,0.4,0.3,0.5,0.6c0.1,0.3,0.1,0.5-0.1,0.8l-3.2,6.2c-0.1,0.3-0.4,0.5-0.7,0.5l-3,0.5c-0.9,0.2-1.7,0.7-2.2,1.6l-7.4,14.2    l-1-0.5L60.9,56.9z M50,60.5l2.9-5.5l9.3,4.8l2.3,1.2c0,0,0,0,0,0l6.2,3.2l-2.9,5.6c-1.3,2.4-2.9,4.6-4.9,6.6    c-0.2-0.1-0.3-0.1-0.5-0.2c-0.9-0.3-1.8-0.6-2.8-0.5c-1.1,0.2-2,0.8-2.9,1.4c-0.6,0.4-1.2,0.8-1.6,0.9c-0.6,0.1-1.3,0-2-0.1    c-0.9-0.1-1.9-0.3-2.8,0.1c-0.1,0-0.2,0.1-0.3,0.2c-0.1,0-0.2-0.1-0.3-0.2c-0.7-0.3-1.4-0.2-2.1-0.2C46.4,71.9,47.3,65.8,50,60.5z     M43,85H6.5c0.4-0.4,1-0.8,1.8-1.3c0.3-0.2,0.6-0.4,1-0.6c0.5-0.4,1-0.9,1.5-1.5c0.7-0.8,1.4-1.6,2.2-1.9c0.5-0.2,1.1-0.1,1.8,0    c0.8,0.1,1.8,0.3,2.8,0c0.8-0.2,1.6-0.7,2.3-1.2c0.7-0.5,1.4-0.9,2-1c0.5-0.1,1.2,0.2,1.9,0.4c0.8,0.3,1.7,0.6,2.7,0.5    c0.9-0.1,1.7-0.5,2.5-0.9c0.7-0.4,1.4-0.7,2-0.7c0.6,0,1.3,0.3,2,0.7c0.8,0.4,1.6,0.8,2.5,0.9c1,0.1,1.9-0.3,2.7-0.5    c0.7-0.2,1.4-0.5,1.9-0.4c0.6,0.1,1.3,0.6,2,1c0.7,0.5,1.5,1,2.3,1.2c1,0.2,1.9,0.1,2.8,0c0.7-0.1,1.4-0.2,1.8,0    c0.8,0.3,1.5,1.1,2.2,1.9c0.5,0.6,1,1.1,1.5,1.5c0.3,0.2,0.6,0.4,1,0.6c0.8,0.5,1.4,0.9,1.8,1.3H43z M57.8,85    c-0.5-1.3-1.7-2.1-3.1-3c-0.3-0.2-0.6-0.4-0.9-0.6c-0.3-0.2-0.7-0.7-1.2-1.2c-0.2-0.2-0.3-0.4-0.5-0.6c0.2,0,0.5,0.1,0.7,0.1    c0.8,0.1,1.8,0.3,2.8,0c0.8-0.2,1.6-0.7,2.3-1.2c0.7-0.5,1.4-0.9,2-1c0.5-0.1,1.2,0.2,1.9,0.4c0.3,0.1,0.7,0.2,1,0.3c0,0,0,0,0,0    c0.5,0.1,1.1,0.3,1.7,0.2c0.9-0.1,1.7-0.5,2.5-0.9c0.7-0.4,1.4-0.7,2-0.7c0.6,0,1.3,0.3,2,0.7c0.8,0.4,1.6,0.8,2.5,0.9    c1,0.1,1.9-0.3,2.7-0.5c0.7-0.2,1.4-0.5,1.9-0.4c0.6,0.1,1.3,0.6,2,1c0.7,0.5,1.5,1,2.3,1.2c1,0.2,1.9,0.1,2.8,0    c0.7-0.1,1.4-0.2,1.8,0c0.8,0.3,1.5,1.1,2.2,1.9c0.5,0.6,1,1.1,1.5,1.5c0.3,0.2,0.7,0.4,1,0.7c0.8,0.5,1.4,0.9,1.8,1.3H57.8z"/>
                 </svg>
               </div>
-              <div>
-                <h2 className="text-xl font-semibold text-stone-100">Garden Walk Complete</h2>
-                <p className="text-sm text-stone-400">{new Date().toLocaleDateString()}</p>
-              </div>
+              <h2 className="text-2xl font-bold text-green-100 mb-1">{summaryData.plantName} Plant</h2>
+              <p className="text-sm text-green-300/70">Garden Walk Complete • {new Date().toLocaleDateString()}</p>
             </div>
 
-            <div className="max-h-[40vh] overflow-y-auto bg-stone-900/50 rounded-xl p-4 mb-6 border border-stone-800 text-sm text-stone-300 leading-relaxed selectable-text">
-              {messages.length > 0 ? (
-                messages.map((m, i) => (
-                  <div key={i} className="mb-3">
-                    <span className={`font-bold text-xs uppercase ${m.role === 'assistant' ? 'text-green-500' : 'text-stone-500'}`}>
-                      {m.role === 'assistant' ? 'Gardener' : 'You'}
-                    </span>
-                    <p className="mt-1">{m.content}</p>
+            {/* Walk Summary - Icon Checklist */}
+            <div className="bg-stone-800/50 backdrop-blur-xl border border-stone-700/50 rounded-3xl p-6 mb-6 shadow-xl">
+              <h3 className="text-lg font-semibold text-stone-100 mb-4">What We Covered</h3>
+              <div className="space-y-3">
+                {/* Plant ID */}
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-900/30 flex items-center justify-center flex-shrink-0">
+                    <svg width="24" height="24" viewBox="0 0 40 40" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="20" y1="36" x2="20" y2="18" />
+                      <path d="M20 24 Q12 20 10 12 Q18 14 20 24" />
+                      <path d="M20 18 Q28 14 30 6 Q22 8 20 18" />
+                      <path d="M10 36 Q20 34 30 36" />
+                    </svg>
                   </div>
-                ))
-              ) : (
-                <p className="italic text-stone-600">No conversation recorded.</p>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-stone-200">Plant Identified</p>
+                    <p className="text-xs text-stone-400 mt-0.5">{summaryData.plantIdentified}</p>
+                  </div>
+                </div>
+
+                {/* Symptoms */}
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-900/30 flex items-center justify-center flex-shrink-0">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round">
+                      <path d="M12 9.00006L16 5.00006M12 14.5001L15 11.5001M18.5 8.00006L16.875 9.62506M12 19.5001L13.875 17.6251M19.5 12.0001L15.75 15.7501" />
+                      <path d="M12 22C16.4183 22 20 18.3541 20 13.8567C20 9.39453 17.4467 4.18759 13.4629 2.32555C12.9986 2.10852 12.4993 2 12 2M12 22C7.58172 22 4 18.3541 4 13.8567C4 12.2707 4.32258 10.5906 4.91731 9M12 22V2M12 2C11.5007 2 11.0014 2.10852 10.5371 2.32555C8.93605 3.07388 7.56606 4.36246 6.5 5.92583" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-stone-200">Symptoms Noted</p>
+                    <p className="text-xs text-stone-400 mt-0.5">{summaryData.symptomsNoted}</p>
+                  </div>
+                </div>
+
+                {/* Environment */}
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-900/30 flex items-center justify-center flex-shrink-0">
+                    <svg width="24" height="24" viewBox="0 0 40 40" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="20" cy="20" r="8" />
+                      <line x1="20" y1="4" x2="20" y2="8" />
+                      <line x1="20" y1="32" x2="20" y2="36" />
+                      <line x1="4" y1="20" x2="8" y2="20" />
+                      <line x1="32" y1="20" x2="36" y2="20" />
+                      <line x1="8.5" y1="8.5" x2="11.3" y2="11.3" />
+                      <line x1="28.7" y1="28.7" x2="31.5" y2="31.5" />
+                      <line x1="31.5" y1="8.5" x2="28.7" y2="11.3" />
+                      <line x1="11.3" y1="28.7" x2="8.5" y2="31.5" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-stone-200">Environment Reviewed</p>
+                    <p className="text-xs text-stone-400 mt-0.5">{summaryData.environmentReviewed}</p>
+                  </div>
+                </div>
+
+                {/* Care History */}
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-900/30 flex items-center justify-center flex-shrink-0">
+                    <svg width="24" height="24" viewBox="0 0 512 512" fill="#22c55e">
+                      <path d="M423.884,110.084c-33.862,0-64.181,18.89-79.124,49.297c-2.484,5.056-0.401,11.168,4.655,13.652c5.057,2.486,11.168,0.401,13.652-4.655c11.487-23.375,34.79-37.896,60.817-37.896c37.34,0,67.719,30.378,67.719,67.719c0,34.845-26.457,63.617-60.335,67.308v-65.786c0-5.633-4.566-10.199-10.199-10.199H196.99l-92.631-87.126c9.2-22.778,4.076-49.391-13.646-67.112c-3.983-3.983-10.441-3.983-14.425,0L2.987,108.586c-3.983,3.983-3.983,10.441,0,14.425c17.514,17.513,43.902,22.731,66.544,13.867l113.217,119.977v212.649c0,5.633,4.566,10.199,10.199,10.199h228.121c5.633,0,10.199-4.566,10.199-10.199V286.005c45.146-3.763,80.734-41.703,80.734-87.804C512.001,149.613,472.472,110.084,423.884,110.084z M410.868,238.328H296.611c-5.633,0-10.199,4.566-10.199,10.199c0,5.633,4.566,10.199,10.199,10.199h114.257v200.579H203.146V252.801c0-2.603-0.995-5.107-2.781-7L79.315,117.524c-3.194-3.385-8.277-4.179-12.35-1.928c-13.077,7.227-28.945,6.702-41.433-0.706L82.6,57.822c7.514,12.633,7.952,28.673,0.467,41.857c-2.322,4.092-1.546,9.241,1.882,12.465l101.011,95.008c1.891,1.78,4.391,2.77,6.987,2.77h217.921V238.328z"/>
+                      <path d="M256.001,238.328h-20.306c-5.633,0-10.199,4.566-10.199,10.199c0,5.633,4.566,10.199,10.199,10.199h20.306c5.633,0,10.199-4.566,10.199-10.199C266.2,242.894,261.634,238.328,256.001,238.328z"/>
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-stone-200">Care History Discussed</p>
+                    <p className="text-xs text-stone-400 mt-0.5">{summaryData.careHistoryDiscussed}</p>
+                  </div>
+                </div>
+
+                {/* Diagnosis */}
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-green-900/30 flex items-center justify-center flex-shrink-0">
+                    <svg width="24" height="24" viewBox="0 0 48 48" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="10" y="6" width="28" height="36" rx="3" />
+                      <path d="M18 6 L18 4 Q24 2 30 4 L30 6" />
+                      <path d="M16 24 L22 30 L32 18" strokeWidth="3" />
+                      <line x1="16" y1="36" x2="32" y2="36" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-stone-200">Diagnosis & Recommendations</p>
+                    <p className="text-xs text-stone-400 mt-0.5">{summaryData.diagnosisGiven}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* View Full Conversation Button */}
+              <button
+                onClick={() => setShowFullConversation(!showFullConversation)}
+                className="w-full mt-4 py-3 px-4 bg-stone-900/50 active:bg-stone-800/50 rounded-xl text-stone-300 transition-colors flex items-center justify-center gap-2 border border-stone-700/50"
+              >
+                <svg className={`w-4 h-4 transition-transform ${showFullConversation ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+                <span className="text-sm font-medium">
+                  {showFullConversation ? 'Hide Full Conversation' : 'View Full Conversation'}
+                </span>
+              </button>
+
+              {/* Full Conversation Transcript */}
+              {showFullConversation && (
+                <div className="mt-4 max-h-[40vh] overflow-y-auto bg-stone-900/50 rounded-xl p-4 border border-stone-800 text-sm text-stone-300 leading-relaxed selectable-text">
+                  {messages.length > 0 ? (
+                    messages.map((m, i) => (
+                      <div key={i} className="mb-3">
+                        <span className={`font-bold text-xs uppercase ${m.role === 'assistant' ? 'text-green-500' : 'text-stone-500'}`}>
+                          {m.role === 'assistant' ? 'Gardener' : 'You'}
+                        </span>
+                        <p className="mt-1">{m.content}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="italic text-stone-600">No conversation recorded.</p>
+                  )}
+                </div>
               )}
             </div>
 
+            {/* Care Recommendations */}
+            <div className="bg-stone-800/50 backdrop-blur-xl border border-stone-700/50 rounded-3xl p-6 mb-6 shadow-xl">
+              <h3 className="text-lg font-semibold text-stone-100 mb-4">Ideal Care</h3>
+              <div className="grid grid-cols-3 gap-4">
+                {/* Light */}
+                <div className="bg-stone-900/50 rounded-2xl p-4 text-center">
+                  <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-yellow-500/20 flex items-center justify-center">
+                    <svg width="24" height="24" viewBox="0 0 40 40" fill="none" stroke="#facc15" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="20" cy="20" r="8" />
+                      <line x1="20" y1="4" x2="20" y2="8" />
+                      <line x1="20" y1="32" x2="20" y2="36" />
+                      <line x1="4" y1="20" x2="8" y2="20" />
+                      <line x1="32" y1="20" x2="36" y2="20" />
+                      <line x1="8.5" y1="8.5" x2="11.3" y2="11.3" />
+                      <line x1="28.7" y1="28.7" x2="31.5" y2="31.5" />
+                      <line x1="31.5" y1="8.5" x2="28.7" y2="11.3" />
+                      <line x1="11.3" y1="28.7" x2="8.5" y2="31.5" />
+                    </svg>
+                  </div>
+                  <p className="text-xs text-stone-400 mb-1">Light</p>
+                  <p className="text-sm font-semibold text-stone-100">{summaryData.careRecommendations.light}</p>
+                  <p className="text-xs text-stone-500 mt-1">{summaryData.careRecommendations.lightDetail}</p>
+                </div>
+
+                {/* Water */}
+                <div className="bg-stone-900/50 rounded-2xl p-4 text-center">
+                  <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-blue-500/20 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+                    </svg>
+                  </div>
+                  <p className="text-xs text-stone-400 mb-1">Water</p>
+                  <p className="text-sm font-semibold text-stone-100">{summaryData.careRecommendations.water}</p>
+                  <p className="text-xs text-stone-500 mt-1">{summaryData.careRecommendations.waterDetail}</p>
+                </div>
+
+                {/* Temperature */}
+                <div className="bg-stone-900/50 rounded-2xl p-4 text-center">
+                  <div className="w-10 h-10 mx-auto mb-2 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" />
+                    </svg>
+                  </div>
+                  <p className="text-xs text-stone-400 mb-1">Temp</p>
+                  <p className="text-sm font-semibold text-stone-100">{summaryData.careRecommendations.temp}</p>
+                  <p className="text-xs text-stone-500 mt-1">{summaryData.careRecommendations.tempDetail}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
             <div className="flex gap-4">
               <button
-                onClick={handleCopySummary}
-                className="flex-1 py-3 px-4 bg-stone-700 active:bg-stone-600 rounded-xl font-medium text-stone-200 transition-colors flex items-center justify-center gap-2"
+                onClick={() => {
+                  const formattedSummary = `🌱 ${summaryData.plantName} Plant - Garden Walk Summary
+${new Date().toLocaleDateString()}
+
+📋 What We Covered:
+✓ Plant: ${summaryData.plantIdentified}
+✓ Symptoms: ${summaryData.symptomsNoted}
+✓ Environment: ${summaryData.environmentReviewed}
+✓ Care: ${summaryData.careHistoryDiscussed}
+✓ Diagnosis: ${summaryData.diagnosisGiven}
+
+💡 Ideal Care Recommendations:
+☀️ Light: ${summaryData.careRecommendations.light} (${summaryData.careRecommendations.lightDetail})
+💧 Water: ${summaryData.careRecommendations.water} (${summaryData.careRecommendations.waterDetail})
+🌡️ Temperature: ${summaryData.careRecommendations.temp} (${summaryData.careRecommendations.tempDetail})
+
+Generated by Gardening Whisperer`;
+                  navigator.clipboard.writeText(formattedSummary);
+                  setCopiedSummary(true);
+                  setTimeout(() => setCopiedSummary(false), 2000);
+                }}
+                className={`flex-1 py-4 px-4 rounded-2xl font-medium transition-colors flex items-center justify-center gap-2 shadow-lg ${
+                  copiedSummary
+                    ? 'bg-green-600 text-white'
+                    : 'bg-stone-700 active:bg-stone-600 text-stone-200'
+                }`}
               >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                  />
-                </svg>
-                Copy Summary
+                {copiedSummary ? (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Share Summary
+                  </>
+                )}
               </button>
               <button
                 onClick={handleReset}
-                className="flex-1 py-3 px-4 bg-green-700 active:bg-green-600 rounded-xl font-medium text-white transition-colors"
+                className="flex-1 py-4 px-4 bg-green-700 active:bg-green-600 rounded-2xl font-medium text-white transition-colors shadow-lg"
               >
-                Start New
+                New Walk
               </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* ERROR */}
       {appState === 'error' && (
