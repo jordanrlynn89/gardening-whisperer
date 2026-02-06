@@ -56,13 +56,17 @@ export function useCamera(): UseCameraReturn {
 
   const capturePhoto = useCallback(
     async (videoElement: HTMLVideoElement): Promise<string | null> => {
+      console.log('[useCamera] Capturing photo...');
+
       if (!isActive || !streamRef.current) {
+        console.error('[useCamera] Cannot capture - camera not active');
         return null;
       }
 
       const { videoWidth, videoHeight } = videoElement;
 
       if (videoWidth === 0 || videoHeight === 0) {
+        console.error('[useCamera] Invalid video dimensions:', videoWidth, videoHeight);
         return null;
       }
 
@@ -72,12 +76,16 @@ export function useCamera(): UseCameraReturn {
 
       const ctx = canvas.getContext('2d');
       if (!ctx) {
+        console.error('[useCamera] Failed to get canvas context');
         return null;
       }
 
       ctx.drawImage(videoElement, 0, 0);
 
-      return canvas.toDataURL('image/jpeg', 0.8);
+      const imageData = canvas.toDataURL('image/jpeg', 0.8);
+      console.log('[useCamera] Photo captured, size:', imageData.length);
+
+      return imageData;
     },
     [isActive]
   );

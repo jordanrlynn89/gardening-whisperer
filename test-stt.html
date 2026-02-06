@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>STT Test - Gardening Whisperer</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        max-width: 600px;
+        margin: 40px auto;
+        padding: 20px;
+      }
+      #btn {
+        padding: 20px 40px;
+        font-size: 18px;
+        cursor: pointer;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      #btn:active {
+        background: #059669;
+      }
+      #btn.listening {
+        background: #ef4444;
+      }
+      #out {
+        padding: 20px;
+        background: #f3f4f6;
+        border-radius: 8px;
+        min-height: 60px;
+        font-size: 16px;
+      }
+      .status {
+        margin-bottom: 10px;
+        padding: 10px;
+        background: #dbeafe;
+        border-radius: 4px;
+        font-size: 14px;
+      }
+      .error {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🎤 Speech-to-Text Test</h1>
+    <div id="status" class="status">Ready to test...</div>
+    <button id="btn">Click to Speak</button>
+    <p id="out"></p>
+
+    <script>
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      const statusEl = document.getElementById("status");
+      const btn = document.getElementById("btn");
+      const out = document.getElementById("out");
+
+      if (!SpeechRecognition) {
+        statusEl.textContent = "❌ SpeechRecognition not supported in this browser. Use Chrome.";
+        statusEl.classList.add("error");
+        btn.disabled = true;
+      } else {
+        statusEl.textContent = "✅ SpeechRecognition supported!";
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      let isListening = false;
+
+      recognition.onresult = (e) => {
+        console.log("onresult:", e);
+        let interim = "";
+        let final = "";
+
+        for (let i = 0; i < e.results.length; i++) {
+          const transcript = e.results[i][0].transcript;
+          if (e.results[i].isFinal) {
+            final += transcript + " ";
+          } else {
+            interim += transcript;
+          }
+        }
+
+        out.textContent = final + (interim ? `[${interim}]` : "");
+      };
+
+      recognition.onerror = (e) => {
+        console.error("STT error:", e);
+        statusEl.textContent = `❌ Error: ${e.error}`;
+        statusEl.classList.add("error");
+        isListening = false;
+        btn.textContent = "Click to Speak";
+        btn.classList.remove("listening");
+      };
+
+      recognition.onstart = () => {
+        console.log("Recognition started");
+        statusEl.textContent = "🎤 Listening...";
+        statusEl.classList.remove("error");
+        isListening = true;
+        btn.textContent = "Click to Stop";
+        btn.classList.add("listening");
+      };
+
+      recognition.onend = () => {
+        console.log("Recognition ended");
+        if (isListening) {
+          // Auto-stopped by browser, restart
+          try {
+            recognition.start();
+          } catch (err) {
+            console.error("Failed to restart:", err);
+          }
+        } else {
+          statusEl.textContent = "Stopped";
+          btn.textContent = "Click to Speak";
+          btn.classList.remove("listening");
+        }
+      };
+
+      btn.onclick = () => {
+        if (isListening) {
+          isListening = false;
+          recognition.stop();
+        } else {
+          out.textContent = "";
+          recognition.start();
+        }
+      };
+    </script>
+  </body>
+</html>

@@ -149,14 +149,19 @@ export function useSpeechRecognition({
 
     // Handle errors
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error('Speech recognition error:', event.error);
+      console.error('[SpeechRecognition] Error:', event.error);
 
       let errorMessage = 'Speech recognition error';
 
       switch (event.error) {
         case 'no-speech':
-          errorMessage = 'No speech detected. Please try again.';
-          break;
+          // Don't treat no-speech as critical error, just log it
+          console.log('[SpeechRecognition] No speech detected, continuing...');
+          return; // Don't stop listening
+        case 'aborted':
+          // Normal when manually stopping
+          console.log('[SpeechRecognition] Aborted (normal)');
+          return;
         case 'audio-capture':
           errorMessage = 'No microphone found. Please check your microphone.';
           break;
@@ -165,7 +170,9 @@ export function useSpeechRecognition({
           break;
         case 'network':
           errorMessage = 'Network error. Please check your connection.';
-          break;
+          // Don't stop on network errors, let auto-restart handle it
+          console.warn('[SpeechRecognition] Network error, will auto-restart');
+          return;
         default:
           errorMessage = `Speech recognition error: ${event.error}`;
       }

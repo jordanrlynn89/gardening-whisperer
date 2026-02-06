@@ -232,6 +232,12 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
       ws.binaryType = 'arraybuffer';
       wsRef.current = ws;
 
+      // Create a promise that resolves when setup_complete is received
+      let resolveSetupComplete: (() => void) | null = null;
+      const setupCompletePromise = new Promise<void>((resolve) => {
+        resolveSetupComplete = resolve;
+      });
+
       ws.onopen = () => {
         console.log('[useGeminiLive] WebSocket connected');
       };
@@ -253,6 +259,11 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
               setIsConnected(true);
               setIsListening(true);
               optionsRef.current.onConnected?.();
+              // Resolve the setup promise
+              if (resolveSetupComplete) {
+                resolveSetupComplete();
+                resolveSetupComplete = null;
+              }
               break;
 
             case 'input_transcript':
@@ -336,6 +347,20 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
           ws.send(event.data);
         }
       };
+
+      // Wait for setup_complete with timeout
+      try {
+        await Promise.race([
+          setupCompletePromise,
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error('Gemini setup timeout (15s)')), 15000)
+          ),
+        ]);
+        console.log('[useGeminiLive] ✅ Connection complete and ready');
+      } catch (timeoutErr) {
+        console.warn('[useGeminiLive] Setup timeout, but continuing anyway:', timeoutErr);
+        // Don't throw - let it proceed, the onConnected callback will fire when setup_complete arrives
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to connect';
       console.error('[useGeminiLive] Connect error:', err);

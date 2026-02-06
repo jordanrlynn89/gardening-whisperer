@@ -36,7 +36,12 @@ export function useChat(): UseChatReturn {
         // We must explicitly include the userMessage we just created.
         const historyToSend = [...messages, userMessage];
 
-        // Call the API
+        console.log('[useChat] Sending message, has image:', !!imageData);
+
+        // Call the API with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: {
@@ -47,9 +52,13 @@ export function useChat(): UseChatReturn {
             conversationHistory: historyToSend,
             imageData,
           }),
+          signal: controller.signal,
         });
 
+        clearTimeout(timeoutId);
+
         const data: ChatApiResponse = await response.json();
+        console.log('[useChat] Received response:', data.success);
 
         if (!data.success || !data.data) {
           throw new Error(data.error || 'Failed to get response');
@@ -69,9 +78,19 @@ export function useChat(): UseChatReturn {
 
         return geminiResponse;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        let errorMessage = 'Unknown error';
+
+        if (err instanceof Error) {
+          if (err.name === 'AbortError') {
+            errorMessage = 'Request timed out. Please try again.';
+            console.error('[useChat] Request timed out after 30s');
+          } else {
+            errorMessage = err.message;
+          }
+        }
+
         setError(errorMessage);
-        console.error('Chat error:', err);
+        console.error('[useChat] Error:', err);
         return null;
       } finally {
         setIsLoading(false);

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ElevenLabs TTS Test</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        max-width: 600px;
+        margin: 40px auto;
+        padding: 20px;
+      }
+      button {
+        padding: 20px 40px;
+        font-size: 18px;
+        cursor: pointer;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        margin: 10px;
+      }
+      button:disabled {
+        background: #9ca3af;
+        cursor: not-allowed;
+      }
+      .status {
+        margin: 20px 0;
+        padding: 10px;
+        background: #dbeafe;
+        border-radius: 4px;
+      }
+      .error {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🔊 ElevenLabs TTS Test</h1>
+    <p>This tests the actual TTS integration used by the app (ElevenLabs → Web Audio API)</p>
+    <div class="status" id="status">Ready to test...</div>
+    <button id="speakBtn" onclick="testElevenLabs()">Test ElevenLabs TTS</button>
+
+    <script>
+      let audioContext = null;
+
+      async function testElevenLabs() {
+        const statusEl = document.getElementById("status");
+        const btn = document.getElementById("speakBtn");
+        btn.disabled = true;
+
+        try {
+          // Initialize AudioContext
+          if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            statusEl.textContent = "✅ AudioContext created";
+          }
+
+          // Unlock audio context (required for user gesture)
+          if (audioContext.state === 'suspended') {
+            await audioContext.resume();
+            console.log("AudioContext unlocked");
+          }
+
+          statusEl.textContent = "📡 Calling ElevenLabs API...";
+
+          // Call the app's TTS endpoint
+          const response = await fetch('http://localhost:3000/api/tts', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              text: 'Hello! This is a test of the ElevenLabs text-to-speech integration. If you can hear this, audio playback is working correctly.',
+            }),
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(`API error: ${response.status} - ${errorData.error || response.statusText}`);
+          }
+
+          statusEl.textContent = "📥 Receiving audio data...";
+          const data = await response.json();
+
+          if (!data.success || !data.audio) {
+            throw new Error('Invalid response from TTS API');
+          }
+
+          statusEl.textContent = "🔊 Decoding base64 audio...";
+          // Convert base64 data URL to ArrayBuffer
+          const base64Audio = data.audio.split(',')[1];
+          const binaryString = atob(base64Audio);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+
+          statusEl.textContent = "🔊 Decoding audio buffer...";
+          const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
+
+          console.log('Audio decoded:', {
+            duration: audioBuffer.duration,
+            channels: audioBuffer.numberOfChannels,
+            sampleRate: audioBuffer.sampleRate,
+          });
+
+          statusEl.textContent = "▶️ Playing audio...";
+
+          // Create audio source and play
+          const source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(audioContext.destination);
+
+          source.onended = () => {
+            console.log("Playback ended");
+            statusEl.textContent = "✅ Playback complete!";
+            btn.disabled = false;
+          };
+
+          source.start(0);
+          console.log("Playback started");
+
+        } catch (error) {
+          console.error("TTS test error:", error);
+          statusEl.textContent = `❌ Error: ${error.message}`;
+          statusEl.classList.add("error");
+          btn.disabled = false;
+        }
+      }
+    </script>
+  </body>
+</html>

@@ -103,14 +103,8 @@ const INSTANT_RESPONSES: Record<string, GeminiResponse> = {
         type: 'ask_question',
         category: 'plant_id',
       },
-      coverage: {
-        plantIdentified: false,
-        symptomsDiscussed: false,
-        environmentAssessed: false,
-        careHistoryGathered: false,
-      },
     },
-    spokenResponse: "Hi! What kind of plant is it?",
+    spokenResponse: "Let's take a walk. First, tell me what kind of plant you have.",
   },
 };
 
@@ -145,9 +139,9 @@ export async function sendToGemini(
     return INSTANT_RESPONSES[cacheKey];
   }
 
-  // Use Gemini 3 Flash Preview (required for hackathon)
+  // Use Gemini 2.5 Flash
   const model = genAI.getGenerativeModel({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-2.5-flash',
     generationConfig: {
       temperature: 0.7,
       topP: 0.95,
@@ -156,15 +150,14 @@ export async function sendToGemini(
     },
   });
 
-  // Build conversation context - keep last 6 messages for better context
-  const recentHistory = conversationHistory.slice(-6);
-  const context = recentHistory.length > 0
-    ? recentHistory.map((msg) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n')
+  // Build conversation context - use full history for garden walk continuity
+  // Gemini 2.5 Flash has large context window, can handle full conversations
+  const context = conversationHistory.length > 0
+    ? conversationHistory.map((msg) => `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`).join('\n')
     : '';
 
   // Debug: log conversation history
-  console.log('[Gemini] History length:', conversationHistory.length);
-  console.log('[Gemini] Recent history:', recentHistory.length);
+  console.log('[Gemini] Full history length:', conversationHistory.length);
 
   // Construct the prompt
   const prompt = context

@@ -44,28 +44,24 @@ function ArchwayIcon({ active }: { active: boolean }) {
   );
 }
 
-// Plant/Seedling Icon
+// Plant/Seedling Icon (leaf design)
 function PlantIcon({ visible, active }: { visible: boolean; active: boolean }) {
+  const leafColor = active ? '#22c55e' : '#57534e';
+  const accentColor = active ? '#16a34a' : '#52524f';
+
   return (
     <svg
       width="40"
       height="40"
-      viewBox="0 0 40 40"
-      fill="none"
-      stroke={active ? '#22c55e' : '#57534e'}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      viewBox="0 0 1000 500"
       className={`transition-all duration-700 ${visible ? 'opacity-100 scale-100' : 'opacity-0 scale-50'} ${active ? 'drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]' : ''}`}
     >
-      {/* Stem */}
-      <line x1="20" y1="36" x2="20" y2="18" />
-      {/* Left leaf */}
-      <path d="M20 24 Q12 20 10 12 Q18 14 20 24" />
-      {/* Right leaf */}
-      <path d="M20 18 Q28 14 30 6 Q22 8 20 18" />
-      {/* Ground */}
-      <path d="M10 36 Q20 34 30 36" />
+      <g fill={leafColor}>
+        {/* Main leaf shape */}
+        <path d="M109.7 257.6s433.6 432.9 665.7 0c-217.3-467.1-665.7 0-665.7 0Z" />
+        {/* Leaf vein/accent */}
+        <path d="M890.1 254.4a6 6 0 0 0-7.4-3.9c-.4.1-37.8 11.2-106.5 2.3-249.7-32.5-438.6-8.9-440.5-8.6a5.8 5.8 0 0 0-5.1 6.7 6 6 0 0 0 6.7 5.2c1.9-.2 189.4-23.7 437.4 8.6a407 407 0 0 0 53.2 3.6c37.3 0 57.2-6 58.3-6.3a6 6 0 0 0 3.9-7.4Z" fill={accentColor} />
+      </g>
     </svg>
   );
 }
@@ -229,9 +225,47 @@ export function GardenJourney({ currentStage, isWalking }: GardenJourneyProps) {
   const animatedIndex = getStageIndex(animatedStage);
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full px-6">
+    <div className="flex flex-col items-center justify-center h-full w-full px-6 relative">
+      {/* Decorative vine paths (left and right) */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <svg className="absolute left-0 top-0 w-12 h-full" viewBox="0 0 48 600" preserveAspectRatio="none">
+          <path
+            d="M24 0 Q10 50 24 100 Q38 150 24 200 Q10 250 24 300 Q38 350 24 400 Q10 450 24 500 Q38 550 24 600"
+            stroke="url(#vineGradient)"
+            strokeWidth="1"
+            fill="none"
+            opacity="0.15"
+            strokeDasharray="4 4"
+          />
+          <defs>
+            <linearGradient id="vineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#22c55e" stopOpacity="0.3" />
+              <stop offset="50%" stopColor="#22c55e" stopOpacity="0.1" />
+              <stop offset="100%" stopColor="#22c55e" stopOpacity="0.3" />
+            </linearGradient>
+          </defs>
+        </svg>
+        <svg className="absolute right-0 top-0 w-12 h-full" viewBox="0 0 48 600" preserveAspectRatio="none">
+          <path
+            d="M24 0 Q38 50 24 100 Q10 150 24 200 Q38 250 24 300 Q10 350 24 400 Q38 450 24 500 Q10 550 24 600"
+            stroke="url(#vineGradient2)"
+            strokeWidth="1"
+            fill="none"
+            opacity="0.15"
+            strokeDasharray="4 4"
+          />
+          <defs>
+            <linearGradient id="vineGradient2" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#22c55e" stopOpacity="0.3" />
+              <stop offset="50%" stopColor="#22c55e" stopOpacity="0.1" />
+              <stop offset="100%" stopColor="#22c55e" stopOpacity="0.3" />
+            </linearGradient>
+          </defs>
+        </svg>
+      </div>
+
       {/* Journey Path */}
-      <div className="flex flex-col items-center gap-1 sm:gap-2 py-4 sm:py-8">
+      <div className="flex flex-col items-center gap-1 sm:gap-2 py-4 sm:py-8 mt-12 relative z-10">
         {/* Start: Archway */}
         <div className="flex flex-col items-center">
           <ArchwayIcon active={animatedIndex === 0} />
@@ -244,7 +278,10 @@ export function GardenJourney({ currentStage, isWalking }: GardenJourneyProps) {
 
         {/* Stage 1: Plant ID */}
         <div className="flex flex-col items-center">
-          <PlantIcon visible={animatedIndex >= 1} active={animatedIndex === 1} />
+          <PlantIcon
+            visible={animatedIndex >= 1}
+            active={animatedIndex === 1}
+          />
         </div>
 
         <Footsteps animate={isWalking && currentIndex === 2} />
@@ -277,12 +314,12 @@ export function GardenJourney({ currentStage, isWalking }: GardenJourneyProps) {
       </div>
 
       {/* Current Stage Label */}
-      <div className="mt-4 text-center">
-        <p className="text-sm text-stone-400 tracking-wide uppercase">
+      <div className="mt-1 text-center">
+        <p className="text-sm text-stone-300 tracking-wide uppercase font-semibold">
           {STAGE_LABELS[animatedStage]}
         </p>
         {isWalking && (
-          <p className="text-xs text-green-500 mt-1 animate-pulse">
+          <p className="text-xs text-green-500 mt-1 animate-pulse font-light">
             Walking...
           </p>
         )}

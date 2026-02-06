@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>STT Debug Test</title>
+    <style>
+      body {
+        font-family: monospace;
+        max-width: 800px;
+        margin: 40px auto;
+        padding: 20px;
+      }
+      button {
+        padding: 20px 40px;
+        font-size: 18px;
+        margin: 10px;
+        cursor: pointer;
+      }
+      .log {
+        background: #f0f0f0;
+        padding: 20px;
+        margin: 20px 0;
+        border-radius: 8px;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      .log div {
+        margin: 5px 0;
+        font-size: 14px;
+      }
+      .error { color: red; }
+      .success { color: green; }
+      .info { color: blue; }
+    </style>
+  </head>
+  <body>
+    <h1>🔍 STT Debug Test</h1>
+
+    <div id="status" class="log">
+      <div class="info">Starting diagnostics...</div>
+    </div>
+
+    <button id="testBtn" style="display:none;">🎤 Click to Test Microphone</button>
+    <p id="result" style="font-size: 20px; padding: 20px; background: #e8e8e8;"></p>
+
+    <script>
+      const status = document.getElementById("status");
+      const testBtn = document.getElementById("testBtn");
+      const result = document.getElementById("result");
+
+      function log(message, type = "info") {
+        const div = document.createElement("div");
+        div.className = type;
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        status.appendChild(div);
+        status.scrollTop = status.scrollHeight;
+        console.log(message);
+      }
+
+      // Test 1: JavaScript is working
+      log("✅ JavaScript is running", "success");
+
+      // Test 2: Check if SpeechRecognition exists
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      if (!SpeechRecognition) {
+        log("❌ SpeechRecognition NOT available", "error");
+        log("This browser does not support Web Speech API", "error");
+      } else {
+        log("✅ SpeechRecognition is available", "success");
+
+        // Test 3: Try to create instance
+        try {
+          const recognition = new SpeechRecognition();
+          log("✅ SpeechRecognition instance created", "success");
+
+          recognition.lang = "en-US";
+          recognition.continuous = false;
+          recognition.interimResults = false;
+
+          log("✅ Recognition configured", "success");
+
+          // Test 4: Set up event handlers
+          recognition.onstart = () => {
+            log("🎤 Recognition STARTED", "success");
+            result.textContent = "Listening... speak now!";
+            result.style.background = "#d1fae5";
+          };
+
+          recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            log(`✅ Got transcript: "${transcript}"`, "success");
+            result.textContent = `You said: "${transcript}"`;
+            result.style.background = "#dbeafe";
+          };
+
+          recognition.onerror = (event) => {
+            log(`❌ Recognition error: ${event.error}`, "error");
+            result.textContent = `Error: ${event.error}`;
+            result.style.background = "#fee2e2";
+          };
+
+          recognition.onend = () => {
+            log("Recognition ended", "info");
+            testBtn.disabled = false;
+            testBtn.textContent = "🎤 Click to Test Again";
+          };
+
+          log("✅ Event handlers attached", "success");
+
+          // Test 5: Enable the button
+          testBtn.style.display = "block";
+          testBtn.disabled = false;
+
+          testBtn.onclick = () => {
+            log("Button clicked - attempting to start recognition...", "info");
+            testBtn.disabled = true;
+            testBtn.textContent = "Starting...";
+            result.textContent = "Requesting microphone access...";
+            result.style.background = "#fef3c7";
+
+            try {
+              recognition.start();
+              log("recognition.start() called successfully", "success");
+            } catch (err) {
+              log(`❌ Error calling start(): ${err.message}`, "error");
+              log(`Error name: ${err.name}`, "error");
+              testBtn.disabled = false;
+              testBtn.textContent = "🎤 Try Again";
+              result.textContent = `Failed to start: ${err.message}`;
+              result.style.background = "#fee2e2";
+            }
+          };
+
+          log("✅ Button ready - click it to test!", "success");
+
+        } catch (err) {
+          log(`❌ Failed to create recognition: ${err.message}`, "error");
+        }
+      }
+
+      log("--- Diagnostics complete ---", "info");
+    </script>
+  </body>
+</html>

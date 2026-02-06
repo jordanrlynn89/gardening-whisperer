@@ -208,6 +208,24 @@ function generateSummaryData(messages: { role: string; content: string }[]): Sum
   };
 }
 
+// Get background gradient based on journey progress
+function getBackgroundGradient(stage: JourneyStage): string {
+  switch (stage) {
+    case 'start':
+      return 'from-stone-900/80 via-transparent to-stone-900/90'; // neutral
+    case 'plant_id':
+      return 'from-emerald-950/50 via-transparent to-stone-900/90'; // slight green tint
+    case 'symptoms':
+      return 'from-stone-900/80 via-stone-800/40 to-stone-900/90'; // slight warmth
+    case 'environment':
+      return 'from-emerald-950/40 via-transparent to-stone-900/90'; // more green
+    case 'care_history':
+      return 'from-emerald-950/50 via-emerald-900/20 to-stone-900/90'; // stronger green
+    case 'complete':
+      return 'from-amber-950/30 via-emerald-950/20 to-amber-950/20'; // celebration warmth
+  }
+}
+
 function detectStageFromMessages(messages: { role: string; content: string }[]): JourneyStage {
   // Simplified stage detection based on message count and content patterns
   // Progress through stages based on number of back-and-forth exchanges
@@ -573,20 +591,25 @@ export function VoiceLoop() {
     setPhotoState('none');
   };
 
+  const backgroundGradient = getBackgroundGradient(currentStage);
+
   return (
     <div className="relative w-full h-dvh bg-stone-900 overflow-hidden">
       <Visualizer volume={volume} isActive={appState === 'active'} />
 
-      <div className="absolute inset-0 bg-gradient-to-b from-stone-900/80 via-transparent to-stone-900/90 pointer-events-none z-0" />
+      {/* Dynamic background gradient based on journey progress */}
+      <div
+        className={`absolute inset-0 bg-gradient-to-b pointer-events-none z-0 transition-all duration-1000 ${backgroundGradient}`}
+      />
+
 
       {/* IDLE */}
       {appState === 'idle' && (
         <div className="relative z-10 flex flex-col items-center justify-center h-full space-y-8 px-6 text-center animate-in fade-in duration-500">
           <div className="w-24 h-24 bg-green-800 rounded-full flex items-center justify-center shadow-2xl shadow-green-900/50">
-            <svg className="w-12 h-12 text-green-200" fill="currentColor" viewBox="0 0 64 64">
-              <path d="M32 48c0-8-6-14-14-14-4 0-7.5 1.5-10 4 0 0 3-14 14-14 6 0 10 4 10 10v14z" />
-              <path d="M32 48c0-8 6-14 14-14 4 0 7.5 1.5 10 4 0 0-3-14-14-14-6 0-10 4-10 10v14z" />
-              <path d="M32 48L32 52" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <svg className="w-12 h-12 text-green-100" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 9.00006L16 5.00006M12 14.5001L15 11.5001M18.5 8.00006L16.875 9.62506M12 19.5001L13.875 17.6251M19.5 12.0001L15.75 15.7501" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              <path d="M12 22C16.4183 22 20 18.3541 20 13.8567C20 9.39453 17.4467 4.18759 13.4629 2.32555C12.9986 2.10852 12.4993 2 12 2M12 22C7.58172 22 4 18.3541 4 13.8567C4 12.2707 4.32258 10.5906 4.91731 9M12 22V2M12 2C11.5007 2 11.0014 2.10852 10.5371 2.32555C8.93605 3.07388 7.56606 4.36246 6.5 5.92583" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </div>
           <div className="flex flex-col items-center">
@@ -595,9 +618,9 @@ export function VoiceLoop() {
           </div>
           <button
             onClick={handleStart}
-            className="group relative flex items-center justify-center w-20 h-20 bg-green-600 rounded-full hover:bg-green-500 transition-all duration-300 shadow-xl hover:shadow-green-500/30"
+            className="group relative flex items-center justify-center w-20 h-20 bg-green-600 rounded-full hover:bg-green-500 transition-all duration-300 shadow-xl hover:shadow-2xl hover:shadow-green-500/50 active:scale-95"
           >
-            <svg className="w-12 h-12 text-white" viewBox="0 0 24 24" style={{ shapeRendering: 'geometricPrecision' }}>
+            <svg className="w-12 h-12 text-white transition-transform duration-200 group-hover:scale-110" viewBox="0 0 24 24" style={{ shapeRendering: 'geometricPrecision' }}>
               <polygon points="8,5 19,12 8,19" fill="currentColor" />
             </svg>
             <span className="absolute -bottom-12 text-sm text-stone-500 font-medium tracking-wide">START WALK</span>
@@ -617,102 +640,83 @@ export function VoiceLoop() {
       {appState === 'active' && (
         <div className="relative z-10 flex flex-col h-full w-full">
           {/* Header with live indicator */}
+          <style>{`
+            @keyframes pulse-glow {
+              0%, 100% {
+                box-shadow: 0 0 0 0 currentColor;
+                opacity: 1;
+              }
+              50% {
+                opacity: 0.7;
+              }
+            }
+            @keyframes listening-pulse {
+              0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+              }
+              50% {
+                transform: scale(1.1);
+                box-shadow: 0 0 0 4px rgba(34, 197, 94, 0);
+              }
+            }
+            @keyframes speaking-pulse {
+              0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+              }
+              50% {
+                transform: scale(1.1);
+                box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
+              }
+            }
+            .listening-indicator {
+              animation: listening-pulse 1.5s ease-in-out infinite;
+            }
+            .speaking-indicator {
+              animation: speaking-pulse 1.5s ease-in-out infinite;
+            }
+          `}</style>
           <div className="absolute top-0 w-full p-6 flex justify-between items-start" style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}>
             <div className="flex items-center gap-2">
               <div
-                className={`w-2 h-2 rounded-full ${
-                  isSpeaking ? 'bg-blue-500 animate-pulse' : isListening ? 'bg-green-500 animate-pulse' : 'bg-stone-500'
+                className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                  isSpeaking
+                    ? 'bg-blue-500 speaking-indicator'
+                    : isListening
+                    ? 'bg-green-500 listening-indicator'
+                    : 'bg-stone-500'
                 }`}
               />
-              <span className="text-xs font-bold tracking-widest text-stone-500 uppercase">
+              <span className={`text-xs font-semibold tracking-widest uppercase transition-all duration-300 ${
+                isSpeaking
+                  ? 'text-blue-400'
+                  : isListening
+                  ? 'text-green-400'
+                  : 'text-stone-500'
+              }`}>
                 {isSpeaking ? 'AI Speaking...' : isListening ? 'Listening...' : isConnected ? 'Connected' : 'Connecting...'}
               </span>
             </div>
           </div>
 
           {/* Garden Journey Visual */}
-          <div className="flex-1 flex items-center justify-center">
+          <div className="flex-1 flex items-center justify-center pb-40">
             <GardenJourney currentStage={currentStage} isWalking={isWalking} />
           </div>
 
-          {/* Live transcript */}
-          {(userTranscript || aiTranscript) && (
-            <div className="absolute left-0 w-full flex justify-center px-6" style={{ top: 'calc(5rem + env(safe-area-inset-top))' }}>
-              <div className="max-w-[85%] p-3 rounded-2xl bg-stone-800/90 text-stone-300 border border-stone-700/50 backdrop-blur-sm">
-                {userTranscript && (
-                  <p className="text-sm leading-relaxed">
-                    <span className="text-stone-500 text-xs">You: </span>
-                    {userTranscript}
-                  </p>
-                )}
-                {aiTranscript && (
-                  <p className="text-sm leading-relaxed mt-1">
-                    <span className="text-green-500 text-xs">Gardener: </span>
-                    {aiTranscript}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Hands-free indicator */}
-          {isListening && !isSpeaking && (
-            <div className="absolute left-0 w-full flex flex-col items-center gap-4 px-6" style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
-              <div className="flex items-center gap-2 text-green-500">
-                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-                <span className="text-sm font-bold uppercase tracking-wide">Listening — just speak</span>
-              </div>
-            </div>
-          )}
-
-          {/* Speaking indicator */}
-          {isSpeaking && (
-            <div className="absolute left-0 w-full flex flex-col items-center gap-4 px-6" style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}>
-              <div className="flex items-center gap-3 text-blue-400">
-                <div className="flex gap-1">
-                  <div className="w-1.5 h-4 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <div className="w-1.5 h-6 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <div className="w-1.5 h-4 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                </div>
-                <span className="text-sm font-bold uppercase tracking-wide">AI Speaking...</span>
-              </div>
-            </div>
-          )}
-
-
-          {/* End Walk Button */}
-          <div className="absolute right-6 z-20 flex flex-col gap-4" style={{ bottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
-            <div className="flex flex-col items-center gap-2">
+          {/* End Walk Button - Bottom Center */}
+          <div className="absolute left-0 right-0 bottom-0 z-20 flex justify-center" style={{ paddingBottom: 'calc(3rem + env(safe-area-inset-bottom))' }}>
+            <div className="flex flex-col items-center gap-2 group">
               <button
                 onClick={handleEnd}
-                className="w-14 h-14 bg-red-500/20 active:bg-red-500/40 border border-red-500/50 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-300"
+                className="w-14 h-14 bg-red-500/20 hover:bg-red-500/30 active:bg-red-500/40 border border-red-500/50 hover:border-red-500/70 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-300 active:scale-95 shadow-lg shadow-red-500/20 hover:shadow-red-500/40"
               >
-                <svg className="w-6 h-6 text-red-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6 text-red-300 transition-transform duration-200 group-hover:rotate-90 group-active:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-              <span className="text-xs text-stone-500 font-medium">END WALK</span>
-            </div>
-          </div>
-
-          {/* Photo button - always available */}
-          <div className="absolute left-6 z-20" style={{ bottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
-            <div className="flex flex-col items-center gap-2">
-              <button
-                onClick={() => setPhotoState('choosing_source')}
-                className="w-14 h-14 bg-green-500/20 active:bg-green-500/40 border border-green-500/50 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-300"
-              >
-                <svg className="w-6 h-6 text-green-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                  />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </button>
-              <span className="text-xs text-stone-500 font-medium">PHOTO</span>
+              <span className="text-xs text-stone-500 font-semibold transition-colors duration-200 group-hover:text-stone-400">END WALK</span>
             </div>
           </div>
 

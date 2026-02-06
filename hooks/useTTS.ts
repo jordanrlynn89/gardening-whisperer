@@ -46,22 +46,22 @@ export function useTTS({
       }
 
       try {
-        // Call TTS API
-        const response = await fetch('/api/tts', {
+        // Use Google Cloud TTS as primary provider
+        const response = await fetch('/api/tts-google', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
             text,
-            voiceId,
+            voiceId: voiceId || 'en-US-Neural2-F', // WaveNet female voice
           }),
         });
 
         const data = await response.json();
 
         if (!data.success || !data.audio) {
-          throw new Error(data.error || 'Failed to generate speech');
+          throw new Error(data.error || 'Google Cloud TTS failed');
         }
 
         // Create and play audio
@@ -90,12 +90,39 @@ export function useTTS({
         // Play audio
         await audio.play();
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-        setError(errorMessage);
-        setIsSpeaking(false);
-        console.error('TTS error:', err);
-        if (onError) {
-          onError(errorMessage);
+        // Final fallback to native browser TTS
+        console.warn('All cloud TTS failed, using native browser fallback:', err);
+
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.rate = 0.95;
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
+
+          utterance.onend = () => {
+            setIsSpeaking(false);
+            if (onEnd) {
+              onEnd();
+            }
+          };
+
+          utterance.onerror = () => {
+            const errorMessage = 'Failed to play native speech';
+            setError(errorMessage);
+            setIsSpeaking(false);
+            if (onError) {
+              onError(errorMessage);
+            }
+          };
+
+          window.speechSynthesis.speak(utterance);
+        } else {
+          const errorMessage = 'Text-to-speech not available';
+          setError(errorMessage);
+          setIsSpeaking(false);
+          if (onError) {
+            onError(errorMessage);
+          }
         }
       }
     },

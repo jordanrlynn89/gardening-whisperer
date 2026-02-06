@@ -25,7 +25,14 @@ THE GARDEN WALK PROCESS — follow ALL of these stages in order. Do NOT skip sta
    - What to do today
    - What to watch for if it worsens
 
-7. WRAP UP: After giving the diagnosis, end the walk clearly. You MUST include the exact phrase "happy gardening" in your final message. For example: "That wraps up our walk! Happy gardening!" or "I think we've covered everything. Happy gardening!"
+7. ASK FOR MORE: After giving the diagnosis, ask the user if they have anything else to add or another plant they'd like to discuss. Wait for their response. Examples:
+   - "Is there anything else you'd like to tell me about this plant?"
+   - "Do you have another plant you'd like to discuss?"
+   - "Anything else I should know, or is that everything?"
+   - If they say "no", "that's all", "I'm good", or similar, proceed to WRAP UP
+   - If they say "yes" or mention another plant/issue, start a new discussion cycle from PLANT ID
+
+8. WRAP UP: Only after asking about more plants/info and hearing their response, end the walk clearly. You MUST include the exact phrase "happy gardening" in your final message. For example: "That wraps up our walk! Happy gardening!" or "I think we've covered everything. Happy gardening!"
 
 IMPORTANT RULES:
 - Follow EVERY stage in order — do not skip ahead even if the user volunteers info early. Acknowledge it and still ask your questions for that stage.
@@ -40,6 +47,7 @@ class GeminiLiveProxy {
     this.clientWs = clientWs;
     this.session = null;
     this.isConnected = false;
+    this._accumulatedAiText = '';
   }
 
   async connect() {
@@ -195,6 +203,7 @@ class GeminiLiveProxy {
       // Output transcription (what Gemini is saying)
       if (content.outputTranscription?.text) {
         console.log('[GeminiLive] AI says:', content.outputTranscription.text);
+        this._accumulatedAiText += content.outputTranscription.text;
         this._sendToClient({
           type: 'output_transcript',
           text: content.outputTranscription.text,
@@ -216,6 +225,12 @@ class GeminiLiveProxy {
       // Turn complete signal
       if (content.turnComplete) {
         console.log('[GeminiLive] Turn complete');
+        // Check if the AI said "happy gardening" — signals walk is done
+        if (this._accumulatedAiText && this._accumulatedAiText.toLowerCase().includes('happy gardening')) {
+          console.log('[GeminiLive] 🌟 Walk complete detected — "happy gardening" found');
+          this._sendToClient({ type: 'walk_complete' });
+        }
+        this._accumulatedAiText = '';
         this._sendToClient({ type: 'turn_complete' });
       }
 
@@ -230,7 +245,11 @@ class GeminiLiveProxy {
   _sendToClient(msg) {
     if (this.clientWs.readyState === 1) {
       // WebSocket.OPEN
-      this.clientWs.send(JSON.stringify(msg));
+      const jsonStr = JSON.stringify(msg);
+      console.log(`[GeminiLive] Sending to client: ${msg.type} (${jsonStr.length} bytes)`);
+      this.clientWs.send(jsonStr);
+    } else {
+      console.warn(`[GeminiLive] Cannot send message, WebSocket not open (state: ${this.clientWs.readyState})`);
     }
   }
 

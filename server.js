@@ -1,4 +1,4 @@
-const { createServer } = require('https');
+const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 const fs = require('fs');
@@ -13,13 +13,8 @@ const port = 3003;
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-const httpsOptions = {
-  key: fs.readFileSync(path.join(__dirname, '.cert', 'key.pem')),
-  cert: fs.readFileSync(path.join(__dirname, '.cert', 'cert.pem')),
-};
-
 app.prepare().then(() => {
-  const server = createServer(httpsOptions, async (req, res) => {
+  const server = createServer(async (req, res) => {
     try {
       const parsedUrl = parse(req.url, true);
       await handle(req, res, parsedUrl);
@@ -80,8 +75,8 @@ app.prepare().then(() => {
       process.exit(1);
     })
     .listen(port, () => {
-      console.log(`> Ready on https://${hostname}:${port}`);
-      console.log(`> Network: https://192.168.4.228:${port}`);
-      console.log(`> WebSocket: wss://${hostname}:${port}/ws/gemini-live`);
+      console.log(`> Ready on http://${hostname}:${port}`);
+      console.log(`> Network: http://192.168.4.228:${port}`);
+      console.log(`> WebSocket: ws://${hostname}:${port}/ws/gemini-live`);
     });
 });

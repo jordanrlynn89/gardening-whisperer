@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Native TTS Test</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        max-width: 600px;
+        margin: 40px auto;
+        padding: 20px;
+      }
+      button {
+        padding: 20px 40px;
+        font-size: 18px;
+        cursor: pointer;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        margin: 10px;
+      }
+      .status {
+        margin: 20px 0;
+        padding: 10px;
+        background: #dbeafe;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🔊 Native Browser TTS Test</h1>
+    <div class="status" id="status">Ready to test...</div>
+    <button onclick="speak()">Speak Test Message</button>
+
+    <script>
+      function speak() {
+        const statusEl = document.getElementById("status");
+
+        if (!window.speechSynthesis) {
+          statusEl.textContent = "❌ Speech Synthesis not supported";
+          return;
+        }
+
+        const utterance = new SpeechSynthesisUtterance(
+          "Hello. This is a test of audio playback using the browser's native speech synthesis."
+        );
+
+        utterance.onstart = () => {
+          console.log("Speech started");
+          statusEl.textContent = "🔊 Speaking...";
+        };
+
+        utterance.onend = () => {
+          console.log("Speech ended");
+          statusEl.textContent = "✅ Playback complete!";
+        };
+
+        utterance.onerror = (e) => {
+          console.error("Speech error:", e);
+          statusEl.textContent = `❌ Error: ${e.error}`;
+        };
+
+        speechSynthesis.speak(utterance);
+        statusEl.textContent = "Starting playback...";
+      }
+    </script>
+  </body>
+</html>

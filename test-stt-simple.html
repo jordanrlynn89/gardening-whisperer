@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Simple STT Test</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        max-width: 600px;
+        margin: 40px auto;
+        padding: 20px;
+        text-align: center;
+      }
+      #talk {
+        padding: 30px 60px;
+        font-size: 24px;
+        cursor: pointer;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 12px;
+        margin: 20px;
+      }
+      #talk:active {
+        background: #059669;
+      }
+      #output {
+        font-size: 20px;
+        padding: 30px;
+        background: #f3f4f6;
+        border-radius: 12px;
+        min-height: 80px;
+        margin: 20px 0;
+      }
+      .listening {
+        background: #dbeafe;
+        color: #1e40af;
+      }
+      .error {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🎤 Simple Voice Recognition Test</h1>
+    <button id="talk">🎤 Click to Talk</button>
+    <p id="output">Waiting…</p>
+
+    <script>
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      if (!SpeechRecognition) {
+        alert("SpeechRecognition NOT supported in this browser");
+        document.getElementById("output").textContent = "❌ Not supported - use Chrome";
+        document.getElementById("output").classList.add("error");
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      const output = document.getElementById("output");
+      const button = document.getElementById("talk");
+      let isListening = false;
+
+      recognition.onstart = () => {
+        console.log("Recognition started");
+        isListening = true;
+        button.disabled = true;
+        button.style.opacity = "0.5";
+        output.textContent = "🎤 Listening… (speak now)";
+        output.classList.add("listening");
+        output.classList.remove("error");
+      };
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        console.log("Transcript:", transcript);
+        output.textContent = "✅ " + transcript;
+        output.classList.remove("listening");
+      };
+
+      recognition.onerror = (event) => {
+        console.error("STT error:", event);
+        isListening = false;
+        button.disabled = false;
+        button.style.opacity = "1";
+
+        let errorMsg = "Error: " + event.error;
+        if (event.error === "not-allowed") {
+          errorMsg = "❌ Microphone permission denied. Please allow access and refresh the page.";
+        } else if (event.error === "no-speech") {
+          errorMsg = "⚠️ No speech detected. Click again to try.";
+        }
+
+        output.textContent = errorMsg;
+        output.classList.add("error");
+        output.classList.remove("listening");
+      };
+
+      recognition.onend = () => {
+        console.log("Recognition ended");
+        isListening = false;
+        button.disabled = false;
+        button.style.opacity = "1";
+      };
+
+      button.onclick = () => {
+        if (isListening) {
+          console.log("Already listening, ignoring click");
+          return;
+        }
+
+        try {
+          console.log("Attempting to start recognition...");
+          recognition.start();
+        } catch (err) {
+          console.error("Failed to start:", err);
+          output.textContent = "❌ Error: " + err.message;
+          output.classList.add("error");
+          isListening = false;
+          button.disabled = false;
+          button.style.opacity = "1";
+        }
+      };
+    </script>
+  </body>
+</html>
