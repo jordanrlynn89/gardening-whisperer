@@ -70,7 +70,7 @@ npm test -- --watch   # Watch mode during development
 # Start development server
 npm run dev
 
-# Start full dev environment (server + ngrok tunnel)
+# Start full dev environment (server + zrok tunnel)
 npm run dev:full
 
 # Stop all dev services
@@ -101,18 +101,18 @@ npm run lint
 
 ## Infrastructure & Tunneling
 
-**ngrok Configuration:**
-When configuring ngrok or tunnel services, always use HTTPS for the public URL and HTTPS for the local target (this project uses a custom HTTPS server). Double-check protocol in both the tunnel config and any WebSocket connection URLs (`wss://` vs `ws://`).
+**zrok Configuration:**
+When configuring zrok or tunnel services, the public URL will be HTTPS (provided by zrok) but the local target is HTTP. WebSocket connections from the browser use `wss://` (secure) through the zrok tunnel, which connects to `ws://` (insecure) locally.
 
 **Automated Setup:**
-Use `npm run dev:full` to automatically start the HTTPS server and ngrok tunnel with correct configuration. This eliminates HTTP/HTTPS protocol mismatches and validates the environment before starting.
+Use `npm run dev:full` to automatically start the HTTP server and zrok tunnel with correct configuration. This validates the environment before starting and provides a public HTTPS URL for mobile testing.
 
 **Manual Verification:**
 If issues arise, verify:
-- Server is running on HTTPS: `https://localhost:3003`
-- ngrok tunnel points to HTTPS backend: `ngrok http https://localhost:3003`
-- WebSocket connections use `wss://` protocol
-- SSL certificates exist in `.cert/` directory
+- Server is running on HTTP: `http://localhost:3003`
+- zrok tunnel points to HTTP backend: `zrok share public http://localhost:3003 --headless`
+- Public URL uses HTTPS: `https://[random].share.zrok.io`
+- WebSocket endpoint accessible: `ws://localhost:3003/ws/gemini-live`
 
 ## Core Architecture
 

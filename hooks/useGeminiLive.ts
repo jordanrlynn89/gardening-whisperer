@@ -14,6 +14,7 @@ interface UseGeminiLiveReturn {
   userTranscript: string;
   aiTranscript: string;
   messages: { role: 'user' | 'assistant'; content: string }[];
+  messagesRef: React.RefObject<{ role: 'user' | 'assistant'; content: string }[]>;
   error: string | null;
 }
 
@@ -22,6 +23,7 @@ interface UseGeminiLiveOptions {
   onSpeakingEnd?: () => void;
   onConnected?: () => void;
   onError?: (error: string) => void;
+  onWalkComplete?: () => void;
 }
 
 // Gemini Live API expects 16kHz 16-bit PCM mono
@@ -41,6 +43,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
   const audioContextRef = useRef<AudioContext | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
 
   // Audio playback queue
@@ -55,22 +58,70 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
   const currentUserTranscriptRef = useRef('');
   const currentAiTranscriptRef = useRef('');
 
+  // Durable backup of messages — survives any React state quirks
+  const messagesBackupRef = useRef<{ role: 'user' | 'assistant'; content: string }[]>([]);
+
+  // Guard: prevent HMR unmount from killing an active connection
+  const activeConnectionRef = useRef(false);
+
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  // Clean up on unmount
+  // Clean up on unmount — but skip if we have an active connection (likely HMR)
   useEffect(() => {
     return () => {
+      if (activeConnectionRef.current) {
+        // HMR remount — schedule delayed cleanup so the new mount can reclaim
+        const ws = wsRef.current;
+        const timeout = setTimeout(() => {
+          // If nobody reclaimed the connection in 3s, it's a real unmount
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.close();
+          }
+        }, 3000);
+        // Store timeout ID on the WebSocket so the new mount can cancel it
+        if (ws) (ws as unknown as Record<string, unknown>)._hmrCleanupTimeout = timeout;
+        return;
+      }
       cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Flush any pending transcripts into the messages array
+  const commitPendingTranscripts = useCallback(() => {
+    const userText = currentUserTranscriptRef.current.trim();
+    const aiText = currentAiTranscriptRef.current.trim();
+
+    if (userText || aiText) {
+      console.log('[useGeminiLive] Committing pending transcripts — user:', userText.length, 'chars, ai:', aiText.length, 'chars');
+      setMessages((prev) => {
+        const next = [...prev];
+        if (userText) next.push({ role: 'user', content: userText });
+        if (aiText) next.push({ role: 'assistant', content: aiText });
+        messagesBackupRef.current = next;
+        return next;
+      });
+      currentUserTranscriptRef.current = '';
+      currentAiTranscriptRef.current = '';
+    }
+  }, []);
+
   const cleanup = useCallback(() => {
-    // Stop mic
+    // Commit any in-flight transcripts before tearing down
+    commitPendingTranscripts();
+
+    activeConnectionRef.current = false;
+
+    // Stop mic capture (worklet or script processor)
     if (workletNodeRef.current) {
       workletNodeRef.current.disconnect();
       workletNodeRef.current = null;
+    }
+    if (scriptProcessorRef.current) {
+      scriptProcessorRef.current.onaudioprocess = null;
+      scriptProcessorRef.current.disconnect();
+      scriptProcessorRef.current = null;
     }
     if (sourceNodeRef.current) {
       sourceNodeRef.current.disconnect();
@@ -108,7 +159,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     setIsConnected(false);
     setIsListening(false);
     setIsSpeaking(false);
-  }, []);
+  }, [commitPendingTranscripts]);
 
   const playNextInQueue = useCallback(() => {
     const ctx = audioContextRef.current;
@@ -163,48 +214,32 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
   const connect = useCallback(async () => {
     setError(null);
     setMessages([]);
+    messagesBackupRef.current = [];
     setUserTranscript('');
     setAiTranscript('');
     currentUserTranscriptRef.current = '';
     currentAiTranscriptRef.current = '';
 
+    // Mark connection as active so HMR cleanup doesn't kill it
+    activeConnectionRef.current = true;
+
     try {
-      // Create AudioContext (must be from user gesture for iOS)
+      // ── Step 1: Audio setup FIRST (requires fresh user gesture on mobile) ──
+      // On mobile browsers, AudioContext creation and getUserMedia must happen
+      // close to the user tap. If we await the WebSocket (1-2s through tunnel)
+      // first, the gesture expires and audio setup fails silently.
+      console.log('[useGeminiLive] Creating AudioContext (user gesture)...');
       const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
       audioContextRef.current = ctx;
 
-      // Resume AudioContext (iOS requires this after user gesture)
       if (ctx.state === 'suspended') {
         await ctx.resume();
       }
+      console.log('[useGeminiLive] AudioContext ready, state:', ctx.state);
 
-      // Register audio worklet for mic capture
-      const workletCode = `
-        class PcmCaptureProcessor extends AudioWorkletProcessor {
-          process(inputs) {
-            const input = inputs[0];
-            if (input && input[0]) {
-              const float32 = input[0];
-              // Convert float32 to int16
-              const int16 = new Int16Array(float32.length);
-              for (let i = 0; i < float32.length; i++) {
-                const s = Math.max(-1, Math.min(1, float32[i]));
-                int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-              }
-              this.port.postMessage(int16.buffer, [int16.buffer]);
-            }
-            return true;
-          }
-        }
-        registerProcessor('pcm-capture', PcmCaptureProcessor);
-      `;
-      const blob = new Blob([workletCode], { type: 'application/javascript' });
-      const workletUrl = URL.createObjectURL(blob);
-      await ctx.audioWorklet.addModule(workletUrl);
-      URL.revokeObjectURL(workletUrl);
-
-      // Get mic access
-      const stream = await navigator.mediaDevices.getUserMedia({
+      // Start getUserMedia IMMEDIATELY while gesture is still fresh
+      console.log('[useGeminiLive] Requesting mic access...');
+      const micPromise = navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: SAMPLE_RATE,
           channelCount: 1,
@@ -213,45 +248,58 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
           autoGainControl: true,
         },
       });
-      mediaStreamRef.current = stream;
 
-      // Connect mic to worklet
-      const source = ctx.createMediaStreamSource(stream);
-      sourceNodeRef.current = source;
+      // ── Step 2: Start WebSocket + AudioWorklet + mic in PARALLEL ──
+      // All three can proceed simultaneously, reducing total connection time.
+      let useWorklet = false;
+      const workletPromise = ctx.audioWorklet
+        .addModule('/pcm-capture-processor.js')
+        .then(() => {
+          useWorklet = true;
+          console.log('[useGeminiLive] AudioWorklet loaded');
+        })
+        .catch(() => {
+          console.warn('[useGeminiLive] AudioWorklet unavailable, using ScriptProcessorNode fallback');
+        });
 
-      const workletNode = new AudioWorkletNode(ctx, 'pcm-capture');
-      workletNodeRef.current = workletNode;
-
-      source.connect(workletNode);
-      // Don't connect workletNode to destination (we don't want to hear ourselves)
-
-      // Connect WebSocket
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws/gemini-live`;
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = 'arraybuffer';
-      wsRef.current = ws;
-
-      // Create a promise that resolves when setup_complete is received
+      // ── Set up WebSocket + message handlers BEFORE Promise.all ──
+      // setup_complete can arrive while we're still waiting for mic/worklet,
+      // so the onmessage handler MUST be registered immediately.
       let resolveSetupComplete: (() => void) | null = null;
       const setupCompletePromise = new Promise<void>((resolve) => {
         resolveSetupComplete = resolve;
       });
 
-      ws.onopen = () => {
-        console.log('[useGeminiLive] WebSocket connected');
-      };
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/gemini-live`;
+      console.log('[useGeminiLive] Connecting WebSocket to', wsUrl);
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
 
+      // Register onmessage IMMEDIATELY so we never miss setup_complete
       ws.onmessage = (event) => {
+        // Normalize data: some proxies (zrok, ngrok) convert text WebSocket
+        // frames to binary. We need to detect JSON-as-binary vs actual audio.
+        let jsonStr: string | null = null;
+
         if (event.data instanceof ArrayBuffer) {
-          // Binary data = audio from Gemini
-          enqueueAudio(event.data);
-          return;
+          const bytes = new Uint8Array(event.data);
+          if (bytes.length > 0 && bytes[0] === 0x7b) {
+            // First byte is '{' — this is JSON delivered as binary, not audio
+            jsonStr = new TextDecoder().decode(event.data);
+          } else {
+            // Actual PCM audio data
+            enqueueAudio(event.data);
+            return;
+          }
+        } else {
+          // Normal text frame
+          jsonStr = event.data;
         }
 
-        // Text data = JSON control message
         try {
-          const msg = JSON.parse(event.data);
+          const msg = JSON.parse(jsonStr!);
 
           switch (msg.type) {
             case 'setup_complete':
@@ -259,7 +307,6 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
               setIsConnected(true);
               setIsListening(true);
               optionsRef.current.onConnected?.();
-              // Resolve the setup promise
               if (resolveSetupComplete) {
                 resolveSetupComplete();
                 resolveSetupComplete = null;
@@ -276,19 +323,19 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
               setAiTranscript((prev) => prev + msg.text);
               break;
 
-            case 'turn_complete':
-              // AI finished speaking — save messages and reset
-              if (currentUserTranscriptRef.current.trim()) {
-                setMessages((prev) => [
-                  ...prev,
-                  { role: 'user', content: currentUserTranscriptRef.current.trim() },
-                ]);
-              }
-              if (currentAiTranscriptRef.current.trim()) {
-                setMessages((prev) => [
-                  ...prev,
-                  { role: 'assistant', content: currentAiTranscriptRef.current.trim() },
-                ]);
+            case 'turn_complete': {
+              const userText = currentUserTranscriptRef.current.trim();
+              const aiText = currentAiTranscriptRef.current.trim();
+              console.log('[useGeminiLive] turn_complete — user:', userText.length, 'chars, ai:', aiText.length, 'chars');
+              if (userText || aiText) {
+                setMessages((prev) => {
+                  const next = [...prev];
+                  if (userText) next.push({ role: 'user', content: userText });
+                  if (aiText) next.push({ role: 'assistant', content: aiText });
+                  messagesBackupRef.current = next;
+                  console.log('[useGeminiLive] Messages now:', next.length, 'entries');
+                  return next;
+                });
               }
               currentUserTranscriptRef.current = '';
               currentAiTranscriptRef.current = '';
@@ -296,9 +343,24 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
               setAiTranscript('');
               setIsListening(true);
               break;
+            }
 
-            case 'interrupted':
-              // User interrupted AI — stop playback
+            case 'interrupted': {
+              // Commit partial transcripts so interrupted turns aren't lost
+              const partialUser = currentUserTranscriptRef.current.trim();
+              const partialAi = currentAiTranscriptRef.current.trim();
+              if (partialUser || partialAi) {
+                console.log('[useGeminiLive] Committing interrupted turn — user:', partialUser.length, 'chars, ai:', partialAi.length, 'chars');
+                setMessages((prev) => {
+                  const next = [...prev];
+                  if (partialUser) next.push({ role: 'user', content: partialUser });
+                  if (partialAi) next.push({ role: 'assistant', content: partialAi });
+                  messagesBackupRef.current = next;
+                  return next;
+                });
+                currentUserTranscriptRef.current = '';
+                currentAiTranscriptRef.current = '';
+              }
               if (currentSourceRef.current) {
                 try {
                   currentSourceRef.current.stop();
@@ -311,6 +373,16 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
               isPlayingRef.current = false;
               setIsSpeaking(false);
               setIsListening(true);
+              break;
+            }
+
+            case 'connecting':
+              console.log('[useGeminiLive] Server connecting to AI...');
+              break;
+
+            case 'walk_complete':
+              console.log('[useGeminiLive] Walk complete signal received');
+              optionsRef.current.onWalkComplete?.();
               break;
 
             case 'error':
@@ -329,38 +401,80 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
         }
       };
 
-      ws.onclose = () => {
-        console.log('[useGeminiLive] WebSocket closed');
+      ws.onclose = (event) => {
+        console.log(`[useGeminiLive] WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
         setIsConnected(false);
         setIsListening(false);
       };
 
-      ws.onerror = (e) => {
-        console.error('[useGeminiLive] WebSocket error:', e);
-        setError('Connection failed');
-        optionsRef.current.onError?.('Connection failed');
-      };
+      const wsOpenPromise = new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('WebSocket connection timed out')), 10000);
+        ws.onopen = () => {
+          clearTimeout(timeout);
+          console.log('[useGeminiLive] WebSocket connected');
+          resolve();
+        };
+        ws.onerror = () => {
+          clearTimeout(timeout);
+          reject(new Error('WebSocket connection failed'));
+        };
+      });
 
-      // Start sending mic audio to WebSocket (skip when paused)
-      workletNode.port.onmessage = (event) => {
-        if (ws.readyState === WebSocket.OPEN && !micPausedRef.current) {
-          ws.send(event.data);
-        }
-      };
-
-      // Wait for setup_complete with timeout
-      try {
-        await Promise.race([
-          setupCompletePromise,
-          new Promise<void>((_, reject) =>
-            setTimeout(() => reject(new Error('Gemini setup timeout (15s)')), 15000)
+      // Wait for mic + WebSocket + worklet (worklet failure is OK)
+      const [stream] = await Promise.all([
+        Promise.race([
+          micPromise,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Microphone access timed out — please allow mic permission and try again')), 10000)
           ),
-        ]);
-        console.log('[useGeminiLive] ✅ Connection complete and ready');
-      } catch (timeoutErr) {
-        console.warn('[useGeminiLive] Setup timeout, but continuing anyway:', timeoutErr);
-        // Don't throw - let it proceed, the onConnected callback will fire when setup_complete arrives
+        ]),
+        wsOpenPromise,
+        Promise.race([
+          workletPromise,
+          new Promise<void>((resolve) => setTimeout(resolve, 3000)), // 3s timeout, fallback is fine
+        ]),
+      ]);
+      mediaStreamRef.current = stream;
+      console.log('[useGeminiLive] Mic + WebSocket + audio processor all ready');
+
+      // ── Step 3: Wire mic audio to WebSocket ──
+      const source = ctx.createMediaStreamSource(stream);
+      sourceNodeRef.current = source;
+
+      if (useWorklet) {
+        const workletNode = new AudioWorkletNode(ctx, 'pcm-capture');
+        workletNodeRef.current = workletNode;
+        source.connect(workletNode);
+        workletNode.port.onmessage = (event) => {
+          if (ws.readyState === WebSocket.OPEN && !micPausedRef.current) {
+            ws.send(event.data);
+          }
+        };
+      } else {
+        const spNode = ctx.createScriptProcessor(4096, 1, 1);
+        scriptProcessorRef.current = spNode;
+        source.connect(spNode);
+        spNode.connect(ctx.destination);
+        spNode.onaudioprocess = (e) => {
+          if (ws.readyState !== WebSocket.OPEN || micPausedRef.current) return;
+          const float32 = e.inputBuffer.getChannelData(0);
+          const int16 = new Int16Array(float32.length);
+          for (let i = 0; i < float32.length; i++) {
+            const s = Math.max(-1, Math.min(1, float32[i]));
+            int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+          ws.send(int16.buffer);
+        };
       }
+
+      // ── Step 4: Connection is ready ──
+      // Don't wait for setup_complete — the WebSocket is open, mic is wired,
+      // and audio is flowing. Gemini will catch up and setup_complete will
+      // still be processed by onmessage when it arrives.
+      console.log('[useGeminiLive] Connection ready — mic and WebSocket wired');
+      setIsConnected(true);
+      setIsListening(true);
+      optionsRef.current.onConnected?.();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to connect';
       console.error('[useGeminiLive] Connect error:', err);
@@ -414,6 +528,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     userTranscript,
     aiTranscript,
     messages,
+    messagesRef: messagesBackupRef,
     error,
   };
 }

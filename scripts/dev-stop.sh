@@ -22,9 +22,9 @@ if lsof -ti:3003 >/dev/null 2>&1; then
     lsof -ti:3003 | xargs kill -9 2>/dev/null || true
 fi
 
-if pgrep -f ngrok >/dev/null 2>&1; then
-    echo "  ↳ Killing ngrok processes..."
-    pkill -f ngrok 2>/dev/null || true
+if pgrep -f "zrok share" >/dev/null 2>&1; then
+    echo "  ↳ Killing zrok processes..."
+    pkill -f "zrok share" 2>/dev/null || true
 fi
 
 sleep 1

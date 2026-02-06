@@ -35,13 +35,27 @@ const STAGE_ORDER: JourneyStage[] = ['start', 'plant_id', 'symptoms', 'environme
 
 // Extract plant name from conversation
 function extractPlantName(messages: { role: string; content: string }[]): string {
-  const plantKeywords = ['tomato', 'basil', 'rose', 'orchid', 'succulent', 'fern', 'cactus', 'monstera', 'pothos', 'snake plant', 'spider plant', 'aloe', 'lavender', 'mint', 'pepper', 'cucumber', 'lettuce', 'strawberry', 'blueberry', 'herb'];
+  const knownPlants = ['snake plant', 'spider plant', 'tomato', 'basil', 'rose', 'orchid', 'succulent', 'fern', 'cactus', 'monstera', 'pothos', 'aloe', 'lavender', 'mint', 'pepper', 'cucumber', 'lettuce', 'strawberry', 'blueberry', 'hibiscus', 'sunflower', 'petunia', 'geranium', 'ivy', 'palm', 'lily', 'daisy', 'marigold', 'zinnia', 'cilantro', 'parsley', 'thyme', 'sage', 'rosemary', 'dill', 'chive'];
 
+  // Priority 1: Check known plant names across ALL messages (most reliable)
   for (const msg of messages) {
     const lower = msg.content.toLowerCase();
-    for (const plant of plantKeywords) {
+    for (const plant of knownPlants) {
       if (lower.includes(plant)) {
-        return plant.charAt(0).toUpperCase() + plant.slice(1);
+        return plant.replace(/\b\w/g, c => c.toUpperCase());
+      }
+    }
+  }
+
+  // Priority 2: Check AI messages — AI often confirms/names the plant
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    const confirmMatch = msg.content.match(/your\s+([a-z][a-z ]{2,20}?)(?:\s+plant|\s+bush|\s+tree|\s+vine)?[.,!?]/i);
+    if (confirmMatch) {
+      const name = confirmMatch[1].trim().toLowerCase();
+      const skip = ['got', 'the', 'that', 'this', 'good', 'great', 'nice', 'let', 'take', 'little', 'new', 'other', 'first', 'next', 'bottom', 'top'];
+      if (!skip.includes(name)) {
+        return name.replace(/\b\w/g, c => c.toUpperCase());
       }
     }
   }
@@ -49,91 +63,112 @@ function extractPlantName(messages: { role: string; content: string }[]): string
   return 'Plant';
 }
 
-// Extract summary for each stage
+// Truncate text to maxLen, ending at a word boundary
+function truncate(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  const cut = text.substring(0, maxLen);
+  const lastSpace = cut.lastIndexOf(' ');
+  return (lastSpace > maxLen * 0.5 ? cut.substring(0, lastSpace) : cut) + '...';
+}
+
+// Find the first user response that answers a question about a given topic.
+// We pair AI questions with the user reply that follows.
+function findUserResponseAbout(
+  messages: { role: string; content: string }[],
+  aiTopicKeywords: string[],
+): string | null {
+  for (let i = 0; i < messages.length - 1; i++) {
+    if (messages[i].role !== 'assistant') continue;
+    const aiLower = messages[i].content.toLowerCase();
+    if (aiTopicKeywords.some(kw => aiLower.includes(kw))) {
+      // Find next user message
+      for (let j = i + 1; j < messages.length; j++) {
+        if (messages[j].role === 'user' && messages[j].content.trim().length > 2) {
+          return messages[j].content.trim();
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Extract summary for each stage by pulling actual conversation content
 function extractStageSummary(messages: { role: string; content: string }[], stage: 'plant_id' | 'symptoms' | 'environment' | 'care_history' | 'diagnosis'): string {
   const userMessages = messages.filter(m => m.role === 'user').map(m => m.content);
   const aiMessages = messages.filter(m => m.role === 'assistant').map(m => m.content);
 
   if (stage === 'plant_id') {
     const plantName = extractPlantName(messages);
-    return plantName !== 'Plant' ? `${plantName} plant identified` : 'Plant type discussed';
+    if (plantName !== 'Plant') return `${plantName} plant`;
+    // Fallback: use first user message as it's typically the plant identification
+    if (userMessages.length > 0) return truncate(userMessages[0], 60);
+    return 'Plant discussed';
   }
 
   if (stage === 'symptoms') {
-    const symptomKeywords = ['yellow', 'brown', 'spot', 'wilt', 'droop', 'curl', 'dying', 'pale', 'discolor'];
-    const found = userMessages.find(m => symptomKeywords.some(kw => m.toLowerCase().includes(kw)));
-    if (found) {
-      const match = found.match(/\b(yellow|brown|spot|wilt|droop|curl|dying|pale|discolor)\w*/gi);
-      return match ? match.join(', ') : 'Symptoms observed and noted';
+    // Find what the user said about symptoms
+    const response = findUserResponseAbout(messages, [
+      'symptom', 'seeing', 'notice', 'observing', 'what are you', 'describe',
+      'color', 'spots', 'wilting', 'drooping', 'wrong with',
+    ]);
+    if (response) return truncate(response, 80);
+    // Fallback: scan all user messages for symptom-related content
+    for (const msg of userMessages) {
+      const lower = msg.toLowerCase();
+      if (['yellow', 'brown', 'spot', 'wilt', 'droop', 'curl', 'dying', 'pale', 'hole', 'dry', 'crispy', 'soft', 'mushy', 'rot'].some(kw => lower.includes(kw))) {
+        return truncate(msg, 80);
+      }
     }
-    return 'Plant health discussed';
+    return 'Symptoms discussed';
   }
 
   if (stage === 'environment') {
-    const envKeywords = {
-      'full sun': 'Full sun location',
-      'partial sun': 'Partial sun',
-      'shade': 'Shaded area',
-      'indoor': 'Indoor',
-      'outdoor': 'Outdoor',
-      'window': 'Near window',
-      'garden': 'Garden bed',
-      'pot': 'Container/pot',
-    };
-
-    const lower = userMessages.join(' ').toLowerCase();
-    for (const [keyword, summary] of Object.entries(envKeywords)) {
-      if (lower.includes(keyword)) {
-        return summary;
-      }
-    }
-    return 'Growing location discussed';
+    const response = findUserResponseAbout(messages, [
+      'sun', 'light', 'indoor', 'outdoor', 'where', 'soil', 'temperature',
+      'location', 'placed', 'garden', 'pot', 'container', 'bed',
+    ]);
+    if (response) return truncate(response, 80);
+    return 'Environment discussed';
   }
 
   if (stage === 'care_history') {
-    const lower = userMessages.join(' ').toLowerCase();
-
-    // Look for watering frequency
-    if (lower.includes('daily') || lower.includes('every day')) {
-      return 'Waters daily';
-    }
-    if (lower.includes('week')) {
-      const match = lower.match(/(\d+)\s*(time|x)?\s*(a|per)?\s*week/);
-      if (match) {
-        return `Waters ${match[1]}x weekly`;
-      }
-      return 'Weekly watering';
-    }
-    if (lower.includes('fertiliz')) {
-      return 'Fertilizing routine discussed';
-    }
-
-    return 'Watering routine discussed';
+    const response = findUserResponseAbout(messages, [
+      'water', 'fertiliz', 'care', 'routine', 'how long', 'how often',
+      'feed', 'spray', 'prune', 'repot', 'recent',
+    ]);
+    if (response) return truncate(response, 80);
+    return 'Care routine discussed';
   }
 
   if (stage === 'diagnosis') {
-    // Look for AI diagnosis in messages
-    const diagnosisKeywords = ['likely', 'suspect', 'appears to be', 'sounds like', 'probably', 'recommend', 'suggest'];
-    const diagnosisMsg = aiMessages.find(m => {
-      const lower = m.toLowerCase();
-      return diagnosisKeywords.some(kw => lower.includes(kw)) &&
-             (lower.includes('root rot') || lower.includes('nutrient') || lower.includes('deficien') ||
-              lower.includes('fungal') || lower.includes('pest') || lower.includes('water'));
-    });
+    // Extract the core diagnosis phrase from AI messages
+    for (const msg of aiMessages) {
+      const lower = msg.toLowerCase();
 
-    if (diagnosisMsg) {
-      // Extract first sentence that contains diagnosis
-      const sentences = diagnosisMsg.split(/[.!?]/);
-      for (const sentence of sentences) {
-        const lower = sentence.toLowerCase();
-        if (diagnosisKeywords.some(kw => lower.includes(kw))) {
-          const cleaned = sentence.trim();
-          return cleaned.substring(0, 80) + (cleaned.length > 80 ? '...' : '');
+      // Try to extract a short diagnosis clause like "likely overwatering" or "sounds like root rot"
+      const clausePatterns = [
+        /(?:it'?s\s+)?(?:likely|probably)\s+(.{3,40}?)(?:[.,;!]|\s+(?:so|and|which|because|I'd|you should))/i,
+        /(?:i\s+suspect|i\s+think)\s+(?:it(?:'s| is| might be)\s+)?(.{3,40}?)(?:[.,;!]|\s+(?:so|and|which|because))/i,
+        /(?:sounds like|appears to be|looks like)\s+(.{3,40}?)(?:[.,;!]|\s+(?:so|and|which|because))/i,
+        /(?:caused by|due to)\s+(.{3,40}?)(?:[.,;!]|\s+(?:so|and|which))/i,
+      ];
+
+      for (const pattern of clausePatterns) {
+        const match = msg.match(pattern);
+        if (match) {
+          const clause = match[1].trim().replace(/[.,;!]+$/, '');
+          // Capitalize first letter
+          return clause.charAt(0).toUpperCase() + clause.slice(1);
         }
       }
-    }
 
-    return 'Assessment and recommendations provided';
+      // Fallback: grab just the first sentence if it contains a diagnosis keyword
+      if (['likely', 'suspect', 'sounds like', 'appears to be', 'probably', 'recommend', 'cause'].some(kw => lower.includes(kw))) {
+        const firstSentence = msg.split(/(?<=[.!?])\s+/)[0];
+        return truncate(firstSentence.trim(), 60);
+      }
+    }
+    return 'Assessment provided';
   }
 
   return 'Discussed';
@@ -332,8 +367,10 @@ export function VoiceLoop() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [photoState, setPhotoState] = useState<PhotoState>('none');
   const [isWalking, setIsWalking] = useState(false);
+  const [walkCompleted, setWalkCompleted] = useState(false);
   const [showFullConversation, setShowFullConversation] = useState(false);
   const [copiedSummary, setCopiedSummary] = useState(false);
+  const conversationRef = useRef<HTMLDivElement>(null);
   const prevStageRef = useRef<JourneyStage>('start');
 
   const { startAmbient, stopAmbient, duck, unduck } = useAmbientSound({
@@ -353,6 +390,7 @@ export function VoiceLoop() {
     userTranscript,
     aiTranscript,
     messages,
+    messagesRef,
     error: geminiError,
   } = useGeminiLive({
     onSpeakingStart: () => {
@@ -371,7 +409,7 @@ export function VoiceLoop() {
     },
     onWalkComplete: () => {
       console.log('[VoiceLoop] 🌟 Walk complete signal received from server');
-      console.log('[VoiceLoop] Summary will appear in 2 seconds...');
+      setWalkCompleted(true);
       setTimeout(() => {
         console.log('[VoiceLoop] Transitioning to summary now');
         disconnect();
@@ -501,17 +539,43 @@ export function VoiceLoop() {
   // Detection happens server-side in gemini-live-proxy.js which sends a 'walk_complete' message
   // This triggers the onWalkComplete callback below
 
-  // Compute current walk stage from message transcripts
-  const currentStage = messages.length > 0 ? detectStageFromMessages(messages) : ('start' as JourneyStage);
+  // Stage only advances forward, never regresses — prevents icon flickering
+  // when new AI responses temporarily lack stage-advancing keywords
+  const [currentStage, setCurrentStage] = useState<JourneyStage>('start');
 
-  // Debug logging
   useEffect(() => {
-    if (messages.length > 0) {
-      console.log('[Stage Detection] Current stage:', currentStage, '| Messages:', messages.length);
-      const lastMsg = messages[messages.length - 1];
-      console.log('[Stage Detection] Last message:', lastMsg.role, ':', lastMsg.content.substring(0, 100));
+    if (walkCompleted) {
+      setCurrentStage('complete');
+      return;
     }
-  }, [currentStage, messages]);
+
+    // Detect stage from completed messages
+    const stageFromMessages = messages.length > 0 ? detectStageFromMessages(messages) : 'start';
+
+    // Also check live AI transcript for real-time advancement
+    let detectedStage = stageFromMessages;
+    if (aiTranscript && aiTranscript.length > 20) {
+      const liveMessages = [
+        ...messages,
+        { role: 'assistant' as const, content: aiTranscript }
+      ];
+      const stageFromLive = detectStageFromMessages(liveMessages);
+      const messageIdx = STAGE_ORDER.indexOf(stageFromMessages);
+      const liveIdx = STAGE_ORDER.indexOf(stageFromLive);
+      detectedStage = liveIdx > messageIdx ? stageFromLive : stageFromMessages;
+    }
+
+    // Only advance — never go back
+    setCurrentStage(prev => {
+      const prevIdx = STAGE_ORDER.indexOf(prev);
+      const detectedIdx = STAGE_ORDER.indexOf(detectedStage);
+      if (detectedIdx > prevIdx) {
+        console.log('[Stage] Advancing:', prev, '->', detectedStage);
+        return detectedStage;
+      }
+      return prev;
+    });
+  }, [messages, aiTranscript, walkCompleted]);
 
   // Trigger walking animation on stage transitions
   useEffect(() => {
@@ -536,6 +600,7 @@ export function VoiceLoop() {
   const handleStart = async () => {
     setAppState('connecting');
     setErrorMsg(null);
+    setCurrentStage('start');
     prevStageRef.current = 'start';
 
     try {
@@ -557,7 +622,9 @@ export function VoiceLoop() {
   };
 
   const handleCopySummary = () => {
-    const summary = messages
+    const backup = messagesRef.current ?? [];
+    const allMsgs = messages.length >= backup.length ? messages : backup;
+    const summary = allMsgs
       .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
       .join('\n\n');
     navigator.clipboard.writeText(summary);
@@ -568,6 +635,8 @@ export function VoiceLoop() {
     setVolume(0);
     setPhotoState('none');
     setCopiedSummary(false);
+    setWalkCompleted(false);
+    setCurrentStage('start');
   };
 
   const handleCameraSelect = () => {
@@ -706,7 +775,7 @@ export function VoiceLoop() {
           </div>
 
           {/* End Walk Button - Bottom Center */}
-          <div className="absolute left-0 right-0 bottom-0 z-20 flex justify-center" style={{ paddingBottom: 'calc(3rem + env(safe-area-inset-bottom))' }}>
+          <div className="absolute left-0 right-0 bottom-0 z-20 flex justify-center" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
             <div className="flex flex-col items-center gap-2 group">
               <button
                 onClick={handleEnd}
@@ -755,7 +824,10 @@ export function VoiceLoop() {
 
       {/* SUMMARY */}
       {appState === 'summary' && (() => {
-        const summaryData = generateSummaryData(messages);
+        // Use whichever source has more messages — backup ref guards against state loss
+        const backup = messagesRef.current ?? [];
+        const allMessages = messages.length >= backup.length ? messages : backup;
+        const summaryData = generateSummaryData(allMessages);
         return (
         <div className="relative z-10 flex flex-col items-center justify-start h-full overflow-y-auto px-4 py-8 animate-in slide-in-from-bottom duration-500">
           <div className="w-full max-w-md">
@@ -870,7 +942,14 @@ export function VoiceLoop() {
 
               {/* View Full Conversation Button */}
               <button
-                onClick={() => setShowFullConversation(!showFullConversation)}
+                onClick={() => {
+                  const next = !showFullConversation;
+                  setShowFullConversation(next);
+                  if (next) {
+                    // Scroll to conversation after it renders
+                    setTimeout(() => conversationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+                  }
+                }}
                 className="w-full mt-4 py-3 px-4 bg-stone-900/50 active:bg-stone-800/50 rounded-xl text-stone-300 transition-colors flex items-center justify-center gap-2 border border-stone-700/50"
               >
                 <svg className={`w-4 h-4 transition-transform ${showFullConversation ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -883,9 +962,9 @@ export function VoiceLoop() {
 
               {/* Full Conversation Transcript */}
               {showFullConversation && (
-                <div className="mt-4 max-h-[40vh] overflow-y-auto bg-stone-900/50 rounded-xl p-4 border border-stone-800 text-sm text-stone-300 leading-relaxed selectable-text">
-                  {messages.length > 0 ? (
-                    messages.map((m, i) => (
+                <div ref={conversationRef} className="mt-4 bg-stone-900/50 rounded-xl p-4 border border-stone-800 text-sm text-stone-300 leading-relaxed">
+                  {allMessages.length > 0 ? (
+                    allMessages.map((m, i) => (
                       <div key={i} className="mb-3">
                         <span className={`font-bold text-xs uppercase ${m.role === 'assistant' ? 'text-green-500' : 'text-stone-500'}`}>
                           {m.role === 'assistant' ? 'Gardener' : 'You'}

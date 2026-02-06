@@ -56,6 +56,9 @@ class GeminiLiveProxy {
       throw new Error('GEMINI_API_KEY not set');
     }
 
+    // Send immediately so the WebSocket isn't idle (tunnels like zrok close idle connections)
+    this._sendToClient({ type: 'connecting' });
+
     const ai = new GoogleGenAI({ apiKey });
 
     console.log('[GeminiLive] Connecting to Gemini Live API...');
@@ -116,7 +119,11 @@ class GeminiLiveProxy {
 
   handleClientMessage(data) {
     if (!this.session || !this.isConnected) {
-      console.warn('[GeminiLive] Not connected, ignoring client message');
+      // Only log once to avoid flooding (mic sends many audio chunks per second)
+      if (!this._loggedNotConnected) {
+        console.warn('[GeminiLive] Not connected yet, buffering client audio...');
+        this._loggedNotConnected = true;
+      }
       return;
     }
 

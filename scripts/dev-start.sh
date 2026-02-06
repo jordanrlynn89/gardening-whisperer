@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Gardening Whisperer Development Startup Script
-# Kills existing processes, starts server, starts ngrok tunnel, and validates health
+# Kills existing processes, starts server, starts zrok tunnel, and validates health
 
 set -e  # Exit on error
 
@@ -29,10 +29,10 @@ if lsof -ti:3003 >/dev/null 2>&1; then
     sleep 1
 fi
 
-# Kill existing ngrok processes
-if pgrep -f ngrok >/dev/null 2>&1; then
-    echo "  ↳ Killing ngrok processes..."
-    pkill -f ngrok 2>/dev/null || true
+# Kill existing zrok processes
+if pgrep -f "zrok share" >/dev/null 2>&1; then
+    echo "  ↳ Killing zrok processes..."
+    pkill -f "zrok share" 2>/dev/null || true
     sleep 1
 fi
 
@@ -48,13 +48,6 @@ echo "🔍 Running pre-flight checks..."
 if [ ! -f ".env.local" ]; then
     echo -e "${RED}✗ .env.local not found${NC}"
     echo "  Please copy .env.example to .env.local and add your API keys"
-    exit 1
-fi
-
-# Check if SSL certs exist
-if [ ! -f ".cert/key.pem" ] || [ ! -f ".cert/cert.pem" ]; then
-    echo -e "${RED}✗ SSL certificates not found in .cert/${NC}"
-    echo "  The custom server requires SSL certificates for HTTPS"
     exit 1
 fi
 
@@ -88,7 +81,7 @@ SERVER_PID=$!
 WAIT_TIME=0
 MAX_WAIT=30
 while [ $WAIT_TIME -lt $MAX_WAIT ]; do
-    if grep -q "Ready on https://0.0.0.0:3003" /tmp/gardening-whisperer-server.log 2>/dev/null; then
+    if grep -q "Ready on http://0.0.0.0:3003" /tmp/gardening-whisperer-server.log 2>/dev/null; then
         echo -e "${GREEN}✓ Server started successfully (PID: $SERVER_PID)${NC}"
         break
     fi
@@ -110,28 +103,28 @@ echo "  📝 Server logs: tail -f /tmp/gardening-whisperer-server.log"
 echo ""
 
 # ================================
-# 4. START NGROK
+# 4. START ZROK
 # ================================
-echo "🌐 Starting ngrok tunnel..."
+echo "🌐 Starting zrok tunnel..."
 
-# Check if ngrok is installed
-if ! command -v ngrok &> /dev/null; then
-    echo -e "${RED}✗ ngrok not found${NC}"
-    echo "  Install with: brew install ngrok (on macOS)"
+# Check if zrok is installed
+if ! command -v zrok &> /dev/null; then
+    echo -e "${RED}✗ zrok not found${NC}"
+    echo "  Install from: https://zrok.io"
     kill $SERVER_PID 2>/dev/null || true
     exit 1
 fi
 
-# Start ngrok in background (HTTPS public URL pointing to HTTPS localhost)
-ngrok http https://localhost:3003 --log stdout > /tmp/gardening-whisperer-ngrok.log 2>&1 &
-NGROK_PID=$!
+# Start zrok in background (HTTPS public URL pointing to HTTP localhost)
+zrok share public http://localhost:3003 --headless > /tmp/gardening-whisperer-zrok.log 2>&1 &
+ZROK_PID=$!
 
-# Wait for ngrok to be ready (max 10 seconds)
+# Wait for zrok to be ready (max 10 seconds)
 WAIT_TIME=0
 MAX_WAIT=10
 while [ $WAIT_TIME -lt $MAX_WAIT ]; do
-    if grep -q "started tunnel" /tmp/gardening-whisperer-ngrok.log 2>/dev/null; then
-        echo -e "${GREEN}✓ ngrok started successfully (PID: $NGROK_PID)${NC}"
+    if grep -q "access your zrok share" /tmp/gardening-whisperer-zrok.log 2>/dev/null; then
+        echo -e "${GREEN}✓ zrok started successfully (PID: $ZROK_PID)${NC}"
         break
     fi
     sleep 1
@@ -140,27 +133,27 @@ while [ $WAIT_TIME -lt $MAX_WAIT ]; do
 done
 
 if [ $WAIT_TIME -eq $MAX_WAIT ]; then
-    echo -e "${RED}✗ ngrok failed to start within ${MAX_WAIT}s${NC}"
+    echo -e "${RED}✗ zrok failed to start within ${MAX_WAIT}s${NC}"
     kill $SERVER_PID 2>/dev/null || true
-    kill $NGROK_PID 2>/dev/null || true
+    kill $ZROK_PID 2>/dev/null || true
     exit 1
 fi
 
 echo ""
 
-# Get ngrok public URL
-sleep 2  # Give ngrok API a moment to be ready
-NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'https://[^"]*\.ngrok-free\.dev' | head -1)
+# Get zrok public URL from log file
+sleep 2  # Give zrok a moment to be ready
+ZROK_URL=$(grep -o 'https://[^"]*\.share\.zrok\.io' /tmp/gardening-whisperer-zrok.log | head -1)
 
-if [ -z "$NGROK_URL" ]; then
-    echo -e "${RED}✗ Could not retrieve ngrok URL${NC}"
-    echo "  Check ngrok logs: tail -f /tmp/gardening-whisperer-ngrok.log"
+if [ -z "$ZROK_URL" ]; then
+    echo -e "${RED}✗ Could not retrieve zrok URL${NC}"
+    echo "  Check zrok logs: tail -f /tmp/gardening-whisperer-zrok.log"
     kill $SERVER_PID 2>/dev/null || true
-    kill $NGROK_PID 2>/dev/null || true
+    kill $ZROK_PID 2>/dev/null || true
     exit 1
 fi
 
-echo -e "${GREEN}✓ ngrok tunnel established${NC}"
+echo -e "${GREEN}✓ zrok tunnel established${NC}"
 echo ""
 
 # ================================
@@ -168,18 +161,18 @@ echo ""
 # ================================
 echo "🏥 Running health checks..."
 
-# Check local HTTPS endpoint
-if curl -sk https://localhost:3003 >/dev/null 2>&1; then
-    echo -e "${GREEN}✓ Local HTTPS endpoint responding${NC}"
+# Check local HTTP endpoint
+if curl -s http://localhost:3003 >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ Local HTTP endpoint responding${NC}"
 else
-    echo -e "${RED}✗ Local HTTPS endpoint not responding${NC}"
+    echo -e "${RED}✗ Local HTTP endpoint not responding${NC}"
 fi
 
-# Check ngrok tunnel
-if curl -s "$NGROK_URL" >/dev/null 2>&1; then
-    echo -e "${GREEN}✓ ngrok tunnel responding${NC}"
+# Check zrok tunnel
+if curl -s "$ZROK_URL" >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ zrok tunnel responding${NC}"
 else
-    echo -e "${YELLOW}⚠ ngrok tunnel not responding (might need to click 'Visit Site' on first request)${NC}"
+    echo -e "${YELLOW}⚠ zrok tunnel not responding yet (give it a moment)${NC}"
 fi
 
 echo ""
@@ -192,29 +185,26 @@ echo -e "${GREEN}✅ Development environment ready!${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "🌍 Public URL (for iPhone testing):"
-echo -e "   ${GREEN}${NGROK_URL}${NC}"
+echo -e "   ${GREEN}${ZROK_URL}${NC}"
 echo ""
-echo "🔒 Local HTTPS URL:"
-echo "   https://localhost:3003"
-echo ""
-echo "📊 ngrok Web UI:"
-echo "   http://localhost:4040"
+echo "🔒 Local HTTP URL:"
+echo "   http://localhost:3003"
 echo ""
 echo "📝 Logs:"
 echo "   Server:  tail -f /tmp/gardening-whisperer-server.log"
-echo "   ngrok:   tail -f /tmp/gardening-whisperer-ngrok.log"
+echo "   zrok:    tail -f /tmp/gardening-whisperer-zrok.log"
 echo ""
 echo "🛑 To stop all services:"
-echo "   kill $SERVER_PID $NGROK_PID"
-echo "   or run: ./scripts/dev-stop.sh"
+echo "   kill $SERVER_PID $ZROK_PID"
+echo "   or run: npm run dev:stop"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Save PIDs for stop script
-echo "$SERVER_PID $NGROK_PID" > /tmp/gardening-whisperer-pids.txt
+echo "$SERVER_PID $ZROK_PID" > /tmp/gardening-whisperer-pids.txt
 
 # Keep script running and forward signals
-trap "kill $SERVER_PID $NGROK_PID 2>/dev/null; exit" INT TERM
+trap "kill $SERVER_PID $ZROK_PID 2>/dev/null; exit" INT TERM
 
 # Follow server logs
 echo ""
