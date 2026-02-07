@@ -17,9 +17,13 @@ describe('useCamera', () => {
     } as unknown as MediaStream;
 
     // Mock getUserMedia
-    global.navigator.mediaDevices = {
-      getUserMedia: jest.fn().mockResolvedValue(mockStream),
-    } as unknown as MediaDevices;
+    Object.defineProperty(global.navigator, 'mediaDevices', {
+      value: {
+        getUserMedia: jest.fn().mockResolvedValue(mockStream),
+      },
+      writable: true,
+      configurable: true,
+    });
   });
 
   afterEach(() => {

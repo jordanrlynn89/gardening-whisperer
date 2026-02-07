@@ -194,7 +194,7 @@ describe('Voice Walk Integration', () => {
       // OR
       // [useGeminiLive] Connection failed: [error]
 
-      const logs = [];
+      const logs: string[] = [];
       expect(logs).toBeDefined();
     });
 
