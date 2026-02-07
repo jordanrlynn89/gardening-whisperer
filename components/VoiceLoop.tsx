@@ -41,9 +41,22 @@ function extractPlantName(messages: { role: string; content: string }[]): string
     'strawberry', 'blueberry', 'hibiscus', 'sunflower', 'petunia', 'geranium', 'ivy', 'palm',
     'lily', 'daisy', 'marigold', 'zinnia', 'cilantro', 'parsley', 'thyme', 'sage', 'rosemary',
     'dill', 'chive', 'philodendron', 'rubber plant', 'jade plant', 'peace lily', 'dracaena',
-    'ficus', 'Boston fern', 'English ivy', 'bamboo', 'African violet', 'begonia', 'coleus',
+    'ficus', 'boston fern', 'english ivy', 'bamboo', 'african violet', 'begonia', 'coleus',
     'dieffenbachia', 'schefflera', 'croton', 'calathea', 'maranta', 'prayer plant', 'zz plant',
-    'hoya', 'string of pearls', 'anthurium', 'bromeliad', 'syngonium', 'arrowhead plant'
+    'hoya', 'string of pearls', 'anthurium', 'bromeliad', 'syngonium', 'arrowhead plant',
+    'avocado', 'lemon', 'lime', 'orange', 'mango', 'papaya', 'banana', 'fig', 'olive', 'grape',
+    'cherry', 'apple', 'pear', 'peach', 'plum', 'pomegranate', 'guava', 'passionfruit',
+    'watermelon', 'cantaloupe', 'squash', 'zucchini', 'pumpkin', 'corn', 'bean', 'pea',
+    'carrot', 'onion', 'garlic', 'potato', 'sweet potato', 'beet', 'radish', 'turnip',
+    'spinach', 'kale', 'arugula', 'chard', 'cabbage', 'broccoli', 'cauliflower', 'celery',
+    'asparagus', 'artichoke', 'eggplant', 'okra', 'jalapeño', 'habanero', 'serrano',
+    'gardenia', 'jasmine', 'hydrangea', 'azalea', 'rhododendron', 'camellia', 'magnolia',
+    'wisteria', 'clematis', 'bougainvillea', 'plumeria', 'bird of paradise', 'heliconia',
+    'poinsettia', 'amaryllis', 'tulip', 'daffodil', 'hyacinth', 'crocus', 'iris', 'peony',
+    'dahlia', 'chrysanthemum', 'aster', 'cosmos', 'poppy', 'snapdragon', 'foxglove',
+    'lemongrass', 'oregano', 'tarragon', 'chamomile', 'bay laurel', 'chives',
+    'fiddle leaf fig', 'money tree', 'chinese evergreen', 'cast iron plant', 'air plant',
+    'aloe vera', 'christmas cactus', 'string of hearts', 'wandering jew', 'tradescantia',
   ];
 
   // Priority 1: Check AI photo-based identification patterns (most authoritative)
@@ -81,19 +94,45 @@ function extractPlantName(messages: { role: string; content: string }[]): string
   }
 
   // Priority 3: Check AI messages for general confirmation patterns
+  const confirmPatterns = [
+    /your\s+([a-z][a-z ]{2,20}?)(?:\s+plant|\s+bush|\s+tree|\s+vine)?[.,!?\s]/i,
+    /(?:an?)\s+([a-z][a-z ]{2,20}?)\s+plant[.,!?\s]/i,
+    /(?:the)\s+([a-z][a-z ]{2,20}?)\s+(?:plant|tree|bush|vine)[.,!?\s]/i,
+  ];
   for (const msg of messages) {
     if (msg.role !== 'assistant') continue;
-    const confirmMatch = msg.content.match(/your\s+([a-z][a-z ]{2,20}?)(?:\s+plant|\s+bush|\s+tree|\s+vine)?[.,!?]/i);
-    if (confirmMatch) {
-      const name = confirmMatch[1].trim().toLowerCase();
-      const skip = ['got', 'the', 'that', 'this', 'good', 'great', 'nice', 'let', 'take', 'little', 'new', 'other', 'first', 'next', 'bottom', 'top'];
-      if (!skip.includes(name)) {
-        return name.replace(/\b\w/g, c => c.toUpperCase());
+    for (const pattern of confirmPatterns) {
+      const confirmMatch = msg.content.match(pattern);
+      if (confirmMatch) {
+        const name = confirmMatch[1].trim().toLowerCase();
+        const skip = ['got', 'the', 'that', 'this', 'good', 'great', 'nice', 'let', 'take', 'little', 'new', 'other', 'first', 'next', 'bottom', 'top', 'same', 'whole', 'entire', 'healthy', 'sick', 'indoor', 'outdoor'];
+        if (!skip.includes(name)) {
+          return name.replace(/\b\w/g, c => c.toUpperCase());
+        }
       }
     }
   }
 
-  return 'Plant';
+  // Priority 4: Check user messages for plant names they mention directly
+  const userPlantPatterns = [
+    /(?:it's|its|i have|i've got|my)\s+(?:a|an)?\s*([a-z][a-z ]{2,20}?)(?:\s+plant|\s+tree)?[.,!?\s]/i,
+    /([a-z][a-z ]{2,20}?)\s+plant[.,!?\s]/i,
+  ];
+  for (const msg of messages) {
+    if (msg.role !== 'user') continue;
+    for (const pattern of userPlantPatterns) {
+      const match = msg.content.match(pattern);
+      if (match) {
+        const name = match[1].trim().toLowerCase();
+        const skip = ['the', 'a', 'an', 'my', 'this', 'that', 'little', 'small', 'big', 'new', 'old'];
+        if (!skip.includes(name) && name.length > 2) {
+          return name.replace(/\b\w/g, c => c.toUpperCase());
+        }
+      }
+    }
+  }
+
+  return 'Your';
 }
 
 // Truncate text to maxLen, ending at a word boundary
@@ -132,7 +171,7 @@ function extractStageSummary(messages: { role: string; content: string }[], stag
 
   if (stage === 'plant_id') {
     const plantName = extractPlantName(messages);
-    if (plantName !== 'Plant') return `${plantName} plant`;
+    if (plantName !== 'Your') return `${plantName} plant`;
     // Fallback: use first user message as it's typically the plant identification
     if (userMessages.length > 0) return truncate(userMessages[0], 60);
     return 'Plant discussed';
