@@ -7,7 +7,7 @@
     "dev:full": "./scripts/dev-start.sh",
     "dev:stop": "./scripts/dev-stop.sh",
     "build": "next build",
-    "start": "NODE_ENV=production node server.js",
+    "start": "node server.js",
     "lint": "next lint",
     "test": "jest",
     "test:watch": "jest --watch",
