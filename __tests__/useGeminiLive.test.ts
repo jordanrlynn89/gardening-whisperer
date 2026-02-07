@@ -46,7 +46,7 @@ class MockAudioContext {
     return 'running';
   }
   audioWorklet = {
-    addModule: jest.fn(),
+    addModule: jest.fn(() => Promise.resolve()),
   };
   close = jest.fn(() => Promise.resolve());
   resume = jest.fn(() => Promise.resolve());
