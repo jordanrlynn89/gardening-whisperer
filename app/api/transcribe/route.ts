@@ -30,6 +30,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 50 MB max for audio data
+    const MAX_AUDIO_SIZE = 50 * 1024 * 1024;
+    if (audioData.length > MAX_AUDIO_SIZE) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Audio too large (max 50 MB)' }),
+        { status: 413, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Convert base64 to buffer
     const audioBuffer = Buffer.from(audioData.split(',')[1], 'base64');
 
