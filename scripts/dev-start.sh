@@ -69,7 +69,25 @@ echo -e "${GREEN}✓ Pre-flight checks complete${NC}"
 echo ""
 
 # ================================
-# 3. START SERVER
+# 3. GENERATE SELF-SIGNED CERT (if missing)
+# ================================
+CERT_DIR="$PROJECT_ROOT/.cert"
+if [ ! -f "$CERT_DIR/cert.pem" ] || [ ! -f "$CERT_DIR/key.pem" ]; then
+    echo "🔐 Generating self-signed HTTPS certificate..."
+    mkdir -p "$CERT_DIR"
+    LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "127.0.0.1")
+    openssl req -x509 -newkey rsa:2048 -keyout "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" \
+        -days 365 -nodes -subj "/CN=localhost" \
+        -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:${LOCAL_IP}" \
+        2>/dev/null
+    echo -e "${GREEN}✓ Certificate generated (.cert/)${NC}"
+else
+    echo -e "${GREEN}✓ HTTPS certificate exists (.cert/)${NC}"
+fi
+echo ""
+
+# ================================
+# 4. START SERVER
 # ================================
 echo "🚀 Starting HTTPS server on port 3003..."
 
@@ -103,7 +121,7 @@ echo "  📝 Server logs: tail -f /tmp/gardening-whisperer-server.log"
 echo ""
 
 # ================================
-# 4. HEALTH CHECK
+# 5. HEALTH CHECK
 # ================================
 echo "🏥 Running health checks..."
 
@@ -122,7 +140,7 @@ fi
 echo ""
 
 # ================================
-# 5. START ZROK (optional)
+# 6. START ZROK (optional)
 # ================================
 ZROK_PID=""
 ZROK_URL=""
@@ -162,7 +180,7 @@ else
 fi
 
 # ================================
-# 6. SUMMARY
+# 7. SUMMARY
 # ================================
 LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "localhost")
 PROTOCOL=$(echo "$LOCAL_URL" | cut -d':' -f1)

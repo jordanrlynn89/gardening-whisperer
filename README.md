@@ -28,17 +28,33 @@ A voice-first AI gardening assistant PWA that helps gardeners diagnose plant iss
 
 ### Running the App
 
-The app requires a custom server for WebSocket connections (Gemini Live audio). Always use:
+> **Important:** Always use `npm run dev:full`, never `npm run dev`.
+> The app requires a custom Node server (`server.js`) that handles WebSocket
+> connections for Gemini Live audio. Plain `npm run dev` starts Next.js only
+> (port 3000) with no WebSocket support — the app will not work.
 
 ```bash
 npm run dev:full
 ```
 
-This starts the HTTPS server on port 3003 with WebSocket support. Do **not** use `npm run dev` — that starts Next.js only without the WebSocket server.
+This will:
+1. Generate a self-signed HTTPS certificate (first run only)
+2. Start the HTTPS server on port 3003 with WebSocket support
+3. Print your local and Wi-Fi URLs
 
-**Phone testing (same Wi-Fi):** Open the `https://<local-ip>:3003` URL shown in the terminal. Accept the self-signed certificate warning.
+> **Why HTTPS?** Browser APIs like microphone (`getUserMedia`) and `AudioContext`
+> require a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts).
+> On `localhost` this works automatically, but accessing via a LAN IP (e.g. from
+> your phone) requires HTTPS — even with a self-signed certificate.
 
-**Note:** If zrok is installed, a public tunnel URL is also provided for remote testing. It's optional.
+### Phone Testing (same Wi-Fi)
+
+1. Run `npm run dev:full` — note the `https://<local-ip>:3003` URL in the output
+2. Open that URL in Chrome on your phone
+3. Accept the self-signed certificate warning ("Your connection is not private" → Advanced → Proceed)
+4. Allow microphone access when prompted
+
+**Optional:** If [zrok](https://zrok.io) is installed, a public tunnel URL is also provided for remote testing.
 
 ### Other Commands
 
