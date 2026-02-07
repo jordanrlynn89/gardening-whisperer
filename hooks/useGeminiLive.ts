@@ -286,8 +286,16 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
         if (event.data instanceof ArrayBuffer) {
           const bytes = new Uint8Array(event.data);
           if (bytes.length > 0 && bytes[0] === 0x7b) {
-            // First byte is '{' — this is JSON delivered as binary, not audio
-            jsonStr = new TextDecoder().decode(event.data);
+            // First byte is '{' — might be JSON delivered as binary
+            const decoded = new TextDecoder().decode(event.data);
+            try {
+              JSON.parse(decoded); // validate before committing
+              jsonStr = decoded;
+            } catch {
+              // Not valid JSON despite starting with '{' — treat as audio
+              enqueueAudio(event.data);
+              return;
+            }
           } else {
             // Actual PCM audio data
             enqueueAudio(event.data);
