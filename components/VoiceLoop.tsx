@@ -453,7 +453,7 @@ export function VoiceLoop() {
   const {
     connect,
     disconnect,
-    sendImage,
+    sendText,
     pauseMic,
     resumeMic,
     isConnected,
@@ -507,32 +507,37 @@ export function VoiceLoop() {
     return () => clearInterval(interval);
   }, []);
 
-  // Helper to check if text contains photo-related triggers
+  // Helper to check if text contains photo-related triggers.
+  // The Live API generates speech natively — its transcription wording varies,
+  // so we match broadly on key words rather than exact phrases.
   const hasPhotoTrigger = (text: string, source: 'ai' | 'user') => {
     const lower = text.toLowerCase();
     if (source === 'ai') {
-      return (
-        lower.includes('show me a picture') ||
-        lower.includes('show me a photo') ||
-        lower.includes('send me a photo') ||
-        lower.includes('take a picture') ||
-        lower.includes('like to see') ||
-        lower.includes('see a photo') ||
-        lower.includes('see a picture') ||
-        lower.includes('photo of') ||
-        lower.includes('picture of') ||
-        lower.includes('send a photo')
-      );
+      // AI suggesting user send a photo: match any mention of photo/picture
+      // combined with action verbs the AI would use
+      const hasPhotoWord = lower.includes('photo') || lower.includes('picture') || lower.includes('image');
+      const hasSuggestVerb =
+        lower.includes('show') ||
+        lower.includes('send') ||
+        lower.includes('take') ||
+        lower.includes('see') ||
+        lower.includes('like to') ||
+        lower.includes('want to') ||
+        lower.includes('help me') ||
+        lower.includes('would') ||
+        lower.includes('can you') ||
+        lower.includes('could you');
+      return hasPhotoWord && hasSuggestVerb;
     }
-    return (
-      lower.includes('show you') ||
-      lower.includes('take a picture') ||
-      lower.includes('take a photo') ||
-      lower.includes('send a picture') ||
-      lower.includes('send you a photo') ||
+    // User offering to send a photo
+    const hasPhotoWord = lower.includes('photo') || lower.includes('picture') || lower.includes('image');
+    const hasActionWord =
+      lower.includes('show') ||
+      lower.includes('take') ||
+      lower.includes('send') ||
       lower.includes('upload') ||
-      lower.includes('let me show')
-    );
+      lower.includes('let me');
+    return hasPhotoWord && hasActionWord;
   };
 
   // Speak acknowledgment when photo chooser appears
@@ -546,6 +551,9 @@ export function VoiceLoop() {
     }
   }, []);
 
+  // Track whether a photo trigger was detected but waiting for speech to end
+  const pendingPhotoTriggerRef = useRef(false);
+
   // Detect photo triggers from completed messages (full sentences, most reliable)
   const lastMessageRef = useRef(0);
   useEffect(() => {
@@ -557,29 +565,37 @@ export function VoiceLoop() {
     for (const msg of newMessages) {
       const source = msg.role === 'assistant' ? 'ai' : 'user';
       if (hasPhotoTrigger(msg.content, source) && photoState === 'none') {
-        console.log('[VoiceLoop] Photo trigger detected in completed message:', msg.content);
-        setPhotoState('choosing_source');
-        speakPhotoPrompt();
-        break;
-      }
-    }
-  }, [messages, photoState, speakPhotoPrompt]);
-
-  // Also detect from streaming transcripts (faster, but less reliable)
-  useEffect(() => {
-    if (!aiTranscript || photoState !== 'none') return;
-    if (hasPhotoTrigger(aiTranscript, 'ai')) {
-      // Wait for AI to finish speaking before showing photo UI
-      const waitForSpeechEnd = setInterval(() => {
-        if (!isSpeaking) {
-          clearInterval(waitForSpeechEnd);
+        console.log('[VoiceLoop] Photo trigger detected in completed message:', msg.content.slice(0, 80));
+        if (source === 'ai' && isSpeaking) {
+          // AI is still speaking — defer showing the modal until audio finishes
+          pendingPhotoTriggerRef.current = true;
+        } else {
           setPhotoState('choosing_source');
           speakPhotoPrompt();
         }
-      }, 200);
-      return () => clearInterval(waitForSpeechEnd);
+        break;
+      }
     }
-  }, [aiTranscript, isSpeaking, photoState, speakPhotoPrompt]);
+  }, [messages, photoState, isSpeaking, speakPhotoPrompt]);
+
+  // Show photo UI once AI finishes speaking (deferred from above)
+  useEffect(() => {
+    if (!isSpeaking && pendingPhotoTriggerRef.current && photoState === 'none') {
+      pendingPhotoTriggerRef.current = false;
+      console.log('[VoiceLoop] AI finished speaking — showing photo chooser');
+      setPhotoState('choosing_source');
+      speakPhotoPrompt();
+    }
+  }, [isSpeaking, photoState, speakPhotoPrompt]);
+
+  // Also detect from streaming AI transcripts (faster response)
+  useEffect(() => {
+    if (!aiTranscript || photoState !== 'none') return;
+    if (hasPhotoTrigger(aiTranscript, 'ai')) {
+      // Mark pending — the completed messages effect or the isSpeaking watcher will fire it
+      pendingPhotoTriggerRef.current = true;
+    }
+  }, [aiTranscript, photoState]);
 
   useEffect(() => {
     if (!userTranscript || photoState !== 'none') return;
@@ -737,21 +753,42 @@ export function VoiceLoop() {
   };
 
   const handlePhotoCapture = useCallback(
-    (imageData: string) => {
+    async (imageData: string) => {
       console.log('[VoiceLoop] Photo captured, size:', imageData?.length || 0);
 
-      // Show processing/uploading state
       setPhotoState('processing');
 
-      // Send the image
-      sendImage(imageData, 'Here is the photo of my plant. What do you see?');
+      // Build conversation context for Gemini 3
+      const backup = messagesRef.current ?? [];
+      const allMsgs = messages.length >= backup.length ? messages : backup;
+      const conversationContext = allMsgs
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
+        .join('\n');
 
-      // Keep processing indicator visible for at least 2 seconds so user sees it
-      setTimeout(() => {
-        setPhotoState('none');
-      }, 2000);
+      try {
+        const res = await fetch('/api/analyze-photo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageData, conversationContext }),
+        });
+
+        const data = await res.json();
+
+        if (data.success && data.analysis) {
+          console.log('[VoiceLoop] Photo analysis received:', data.analysis.slice(0, 100));
+          sendText(`[Photo analysis] ${data.analysis}`);
+        } else {
+          console.warn('[VoiceLoop] Photo analysis failed:', data.error);
+          sendText('I tried to analyze the photo but had trouble. Can you describe what you see instead?');
+        }
+      } catch (err) {
+        console.error('[VoiceLoop] Photo analysis fetch error:', err);
+        sendText('I tried to analyze the photo but had trouble. Can you describe what you see instead?');
+      }
+
+      setPhotoState('none');
     },
-    [sendImage]
+    [sendText, messages, messagesRef]
   );
 
   const handlePhotoCancel = () => {

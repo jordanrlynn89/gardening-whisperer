@@ -1,5 +1,7 @@
 const { GoogleGenAI, Modality } = require('@google/genai');
 
+const VERBOSE = process.env.NODE_ENV !== 'production';
+
 const SYSTEM_PROMPT = `You are a friendly, warm gardening assistant called "Gardening Whisperer." You're taking the user on a "garden walk" — a voice conversation to diagnose plant issues.
 
 Your personality:
@@ -133,34 +135,12 @@ class GeminiLiveProxy {
         const msg = JSON.parse(data.toString());
 
         if (msg.type === 'text') {
-          // Text message (e.g., photo description)
+          // Text message (e.g., injected photo analysis from Gemini 3)
           this.session.sendClientContent({
             turns: [
               {
                 role: 'user',
                 parts: [{ text: msg.text }],
-              },
-            ],
-            turnComplete: true,
-          });
-          return;
-        }
-
-        if (msg.type === 'image') {
-          // Image data for photo analysis
-          this.session.sendClientContent({
-            turns: [
-              {
-                role: 'user',
-                parts: [
-                  { text: msg.text || 'Here is a photo of my plant. What do you see?' },
-                  {
-                    inlineData: {
-                      mimeType: 'image/jpeg',
-                      data: msg.imageData,
-                    },
-                  },
-                ],
               },
             ],
             turnComplete: true,
@@ -199,7 +179,7 @@ class GeminiLiveProxy {
 
       // Input transcription (what the user said)
       if (content.inputTranscription?.text) {
-        console.log('[GeminiLive] User said:', content.inputTranscription.text);
+        if (VERBOSE) console.log('[GeminiLive] User said:', content.inputTranscription.text);
         this._sendToClient({
           type: 'input_transcript',
           text: content.inputTranscription.text,
@@ -208,7 +188,7 @@ class GeminiLiveProxy {
 
       // Output transcription (what Gemini is saying)
       if (content.outputTranscription?.text) {
-        console.log('[GeminiLive] AI says:', content.outputTranscription.text);
+        if (VERBOSE) console.log('[GeminiLive] AI says:', content.outputTranscription.text);
         this._accumulatedAiText += content.outputTranscription.text;
         this._sendToClient({
           type: 'output_transcript',

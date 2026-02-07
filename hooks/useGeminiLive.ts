@@ -6,6 +6,7 @@ interface UseGeminiLiveReturn {
   connect: () => Promise<void>;
   disconnect: () => void;
   sendImage: (imageData: string, text?: string) => void;
+  sendText: (text: string) => void;
   pauseMic: () => void;
   resumeMic: () => void;
   isConnected: boolean;
@@ -531,10 +532,22 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     );
   }, []);
 
+  const sendText = useCallback((text: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    wsRef.current.send(
+      JSON.stringify({
+        type: 'text',
+        text,
+      })
+    );
+  }, []);
+
   return {
     connect,
     disconnect,
     sendImage,
+    sendText,
     pauseMic,
     resumeMic,
     isConnected,

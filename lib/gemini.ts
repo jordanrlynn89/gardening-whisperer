@@ -139,9 +139,9 @@ export async function sendToGemini(
     return INSTANT_RESPONSES[cacheKey];
   }
 
-  // Use Gemini 2.5 Flash
+  // Use Gemini 3 Flash
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3-flash-preview',
     generationConfig: {
       temperature: 0.7,
       topP: 0.95,
