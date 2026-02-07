@@ -35,9 +35,42 @@ const STAGE_ORDER: JourneyStage[] = ['start', 'plant_id', 'symptoms', 'environme
 
 // Extract plant name from conversation
 function extractPlantName(messages: { role: string; content: string }[]): string {
-  const knownPlants = ['snake plant', 'spider plant', 'tomato', 'basil', 'rose', 'orchid', 'succulent', 'fern', 'cactus', 'monstera', 'pothos', 'aloe', 'lavender', 'mint', 'pepper', 'cucumber', 'lettuce', 'strawberry', 'blueberry', 'hibiscus', 'sunflower', 'petunia', 'geranium', 'ivy', 'palm', 'lily', 'daisy', 'marigold', 'zinnia', 'cilantro', 'parsley', 'thyme', 'sage', 'rosemary', 'dill', 'chive'];
+  const knownPlants = [
+    'snake plant', 'spider plant', 'tomato', 'basil', 'rose', 'orchid', 'succulent', 'fern',
+    'cactus', 'monstera', 'pothos', 'aloe', 'lavender', 'mint', 'pepper', 'cucumber', 'lettuce',
+    'strawberry', 'blueberry', 'hibiscus', 'sunflower', 'petunia', 'geranium', 'ivy', 'palm',
+    'lily', 'daisy', 'marigold', 'zinnia', 'cilantro', 'parsley', 'thyme', 'sage', 'rosemary',
+    'dill', 'chive', 'philodendron', 'rubber plant', 'jade plant', 'peace lily', 'dracaena',
+    'ficus', 'Boston fern', 'English ivy', 'bamboo', 'African violet', 'begonia', 'coleus',
+    'dieffenbachia', 'schefflera', 'croton', 'calathea', 'maranta', 'prayer plant', 'zz plant',
+    'hoya', 'string of pearls', 'anthurium', 'bromeliad', 'syngonium', 'arrowhead plant'
+  ];
 
-  // Priority 1: Check known plant names across ALL messages (most reliable)
+  // Priority 1: Check AI photo-based identification patterns (most authoritative)
+  // AI might say "this is a...", "this appears to be...", "I can see...", "looking at..."
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    const lower = msg.content.toLowerCase();
+
+    // Photo identification patterns
+    const photoPatterns = [
+      /(?:this is|appears to be|looks like|i can see|from the photo.*?it's|i'd identify this as|this seems to be)\s+(?:a|an)\s+([a-z][a-z ]{2,30}?)(?:\s+plant)?[.,!?\s]/i,
+      /(?:identified|identifying|recognize|recognized)\s+(?:this|it)\s+as\s+(?:a|an)\s+([a-z][a-z ]{2,30}?)(?:\s+plant)?[.,!?\s]/i,
+    ];
+
+    for (const pattern of photoPatterns) {
+      const match = msg.content.match(pattern);
+      if (match) {
+        const name = match[1].trim().toLowerCase();
+        const skip = ['healthy', 'sick', 'beautiful', 'lovely', 'common', 'popular', 'indoor', 'outdoor', 'tropical', 'good', 'nice'];
+        if (!skip.includes(name)) {
+          return name.replace(/\b\w/g, c => c.toUpperCase());
+        }
+      }
+    }
+  }
+
+  // Priority 2: Check known plant names across ALL messages
   for (const msg of messages) {
     const lower = msg.content.toLowerCase();
     for (const plant of knownPlants) {
@@ -47,7 +80,7 @@ function extractPlantName(messages: { role: string; content: string }[]): string
     }
   }
 
-  // Priority 2: Check AI messages — AI often confirms/names the plant
+  // Priority 3: Check AI messages for general confirmation patterns
   for (const msg of messages) {
     if (msg.role !== 'assistant') continue;
     const confirmMatch = msg.content.match(/your\s+([a-z][a-z ]{2,20}?)(?:\s+plant|\s+bush|\s+tree|\s+vine)?[.,!?]/i);
@@ -463,6 +496,17 @@ export function VoiceLoop() {
     );
   };
 
+  // Speak acknowledgment when photo chooser appears
+  const speakPhotoPrompt = useCallback(() => {
+    if ('speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance('You can go ahead and take a photo or upload a photo now');
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 0.8;
+      window.speechSynthesis.speak(utterance);
+    }
+  }, []);
+
   // Detect photo triggers from completed messages (full sentences, most reliable)
   const lastMessageRef = useRef(0);
   useEffect(() => {
@@ -476,10 +520,11 @@ export function VoiceLoop() {
       if (hasPhotoTrigger(msg.content, source) && photoState === 'none') {
         console.log('[VoiceLoop] Photo trigger detected in completed message:', msg.content);
         setPhotoState('choosing_source');
+        speakPhotoPrompt();
         break;
       }
     }
-  }, [messages, photoState]);
+  }, [messages, photoState, speakPhotoPrompt]);
 
   // Also detect from streaming transcripts (faster, but less reliable)
   useEffect(() => {
@@ -490,18 +535,20 @@ export function VoiceLoop() {
         if (!isSpeaking) {
           clearInterval(waitForSpeechEnd);
           setPhotoState('choosing_source');
+          speakPhotoPrompt();
         }
       }, 200);
       return () => clearInterval(waitForSpeechEnd);
     }
-  }, [aiTranscript, isSpeaking, photoState]);
+  }, [aiTranscript, isSpeaking, photoState, speakPhotoPrompt]);
 
   useEffect(() => {
     if (!userTranscript || photoState !== 'none') return;
     if (hasPhotoTrigger(userTranscript, 'user')) {
       setPhotoState('choosing_source');
+      speakPhotoPrompt();
     }
-  }, [userTranscript, photoState]);
+  }, [userTranscript, photoState, speakPhotoPrompt]);
 
   // Pause mic when actively using camera/library so AI waits.
   // Keep mic on during 'choosing_source' so user can verbally decline.
@@ -653,8 +700,17 @@ export function VoiceLoop() {
   const handlePhotoCapture = useCallback(
     (imageData: string) => {
       console.log('[VoiceLoop] Photo captured, size:', imageData?.length || 0);
-      setPhotoState('none');
+
+      // Show processing/uploading state
+      setPhotoState('processing');
+
+      // Send the image
       sendImage(imageData, 'Here is the photo of my plant. What do you see?');
+
+      // Keep processing indicator visible for at least 2 seconds so user sees it
+      setTimeout(() => {
+        setPhotoState('none');
+      }, 2000);
     },
     [sendImage]
   );
@@ -809,16 +865,18 @@ export function VoiceLoop() {
                 left: 0,
                 right: 0,
                 bottom: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 zIndex: 1000,
               }}
+              className="animate-in fade-in duration-200"
             >
-              <div style={{ textAlign: 'center', color: '#fff' }}>
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500 mx-auto mb-4" />
-                <p className="text-lg">Analyzing your plant...</p>
+              <div style={{ textAlign: 'center', color: '#fff' }} className="backdrop-blur-sm bg-stone-900/50 rounded-3xl p-8 border border-stone-700/50">
+                <div className="animate-spin rounded-full h-16 w-16 border-b-3 border-green-500 mx-auto mb-4" />
+                <p className="text-xl font-medium text-stone-100 mb-2">Uploading photo...</p>
+                <p className="text-sm text-stone-400">Preparing for analysis</p>
               </div>
             </div>
           )}

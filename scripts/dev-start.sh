@@ -81,7 +81,7 @@ SERVER_PID=$!
 WAIT_TIME=0
 MAX_WAIT=30
 while [ $WAIT_TIME -lt $MAX_WAIT ]; do
-    if grep -q "Ready on http://0.0.0.0:3003" /tmp/gardening-whisperer-server.log 2>/dev/null; then
+    if grep -q "Ready on https\?://0.0.0.0:3003" /tmp/gardening-whisperer-server.log 2>/dev/null; then
         echo -e "${GREEN}✓ Server started successfully (PID: $SERVER_PID)${NC}"
         break
     fi
@@ -161,11 +161,16 @@ echo ""
 # ================================
 echo "🏥 Running health checks..."
 
-# Check local HTTP endpoint
-if curl -s http://localhost:3003 >/dev/null 2>&1; then
+# Check local endpoint (try HTTPS first, fall back to HTTP)
+if curl -sk https://localhost:3003 >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ Local HTTPS endpoint responding${NC}"
+    LOCAL_URL="https://localhost:3003"
+elif curl -s http://localhost:3003 >/dev/null 2>&1; then
     echo -e "${GREEN}✓ Local HTTP endpoint responding${NC}"
+    LOCAL_URL="http://localhost:3003"
 else
-    echo -e "${RED}✗ Local HTTP endpoint not responding${NC}"
+    echo -e "${RED}✗ Local endpoint not responding${NC}"
+    LOCAL_URL="http://localhost:3003"
 fi
 
 # Check zrok tunnel
@@ -180,6 +185,10 @@ echo ""
 # ================================
 # 6. SUMMARY
 # ================================
+# Get local IP for network access
+LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "localhost")
+PROTOCOL=$(echo "$LOCAL_URL" | cut -d':' -f1)
+
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${GREEN}✅ Development environment ready!${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -187,8 +196,11 @@ echo ""
 echo "🌍 Public URL (for iPhone testing):"
 echo -e "   ${GREEN}${ZROK_URL}${NC}"
 echo ""
-echo "🔒 Local HTTP URL:"
-echo "   http://localhost:3003"
+echo "📱 Local network URL (direct WiFi connection):"
+echo -e "   ${GREEN}${PROTOCOL}://${LOCAL_IP}:3003${NC}"
+echo ""
+echo "💻 Localhost URL:"
+echo "   ${LOCAL_URL}"
 echo ""
 echo "📝 Logs:"
 echo "   Server:  tail -f /tmp/gardening-whisperer-server.log"
