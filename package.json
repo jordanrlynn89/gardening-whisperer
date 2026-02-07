@@ -23,7 +23,7 @@
     "@google/generative-ai": "^0.24.1",
     "capacitor-voice-recorder": "^7.0.6",
     "eruda": "^3.4.3",
-    "next": "^15.1.6",
+    "next": "^15.5.12",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "ws": "^8.19.0"
