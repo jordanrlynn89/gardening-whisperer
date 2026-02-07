@@ -405,6 +405,13 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
         console.log(`[useGeminiLive] WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
         setIsConnected(false);
         setIsListening(false);
+        // If connection drops unexpectedly (not a clean close from disconnect()),
+        // surface it to the user so they're not staring at a frozen UI
+        if (activeConnectionRef.current && event.code !== 1000) {
+          const msg = 'Connection lost — please try again';
+          setError(msg);
+          optionsRef.current.onError?.(msg);
+        }
       };
 
       const wsOpenPromise = new Promise<void>((resolve, reject) => {

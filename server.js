@@ -4,8 +4,19 @@ const { parse } = require('url');
 const next = require('next');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { WebSocketServer } = require('ws');
 const { GeminiLiveProxy } = require('./server/gemini-live-proxy');
+
+function getLanIp() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return 'localhost';
+}
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
@@ -98,12 +109,13 @@ app.prepare().then(() => {
     .listen(port, () => {
       const proto = useHttps ? 'https' : 'http';
       const wsProto = useHttps ? 'wss' : 'ws';
+      const lanIp = getLanIp();
       console.log(`> Ready on ${proto}://${hostname}:${port}`);
-      console.log(`> Network: ${proto}://192.168.4.228:${port}`);
+      console.log(`> Network: ${proto}://${lanIp}:${port}`);
       console.log(`> WebSocket: ${wsProto}://${hostname}:${port}/ws/gemini-live`);
       if (useHttps) {
         console.log(`> HTTPS enabled (certs from .cert/)`);
-        console.log(`> Open on your phone: ${proto}://192.168.4.228:${port}`);
+        console.log(`> Open on your phone: ${proto}://${lanIp}:${port}`);
       }
     });
 });
