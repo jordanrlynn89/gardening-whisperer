@@ -1,4 +1,4 @@
-# 🌱 Gardening Whisperer
+# Gardening Whisperer
 
 A voice-first AI gardening assistant PWA that helps gardeners diagnose plant issues hands-free using spoken conversation and photo analysis.
 
@@ -6,7 +6,7 @@ A voice-first AI gardening assistant PWA that helps gardeners diagnose plant iss
 
 ### Prerequisites
 
-- Node.js 25+ (installed)
+- Node.js 20+
 - Chrome browser (for Web Speech API support)
 
 ### Installation
@@ -26,67 +26,41 @@ A voice-first AI gardening assistant PWA that helps gardeners diagnose plant iss
    - **Gemini API**: Get from https://ai.google.dev/
    - **ElevenLabs API**: Get from https://elevenlabs.io/
 
-### Development
+### Running the App
+
+The app requires a custom server for WebSocket connections (Gemini Live audio). Always use:
 
 ```bash
-npm run dev
+npm run dev:full
 ```
 
-Open [http://localhost:3000](http://localhost:3000) (or :3001 if 3000 is in use) in Chrome.
+This starts the HTTPS server on port 3003 with WebSocket support. Do **not** use `npm run dev` — that starts Next.js only without the WebSocket server.
 
-### Building for Production
+**Phone testing (same Wi-Fi):** Open the `https://<local-ip>:3003` URL shown in the terminal. Accept the self-signed certificate warning.
+
+**Note:** If zrok is installed, a public tunnel URL is also provided for remote testing. It's optional.
+
+### Other Commands
 
 ```bash
-npm run build
-npm start
+npm run dev:stop      # Stop all dev services
+npm test              # Run tests
+npm test -- --watch   # Watch mode
+npm run typecheck     # Type-check without emitting
+npm run lint          # Lint
+npm run build         # Production build
+npm start             # Start production server
 ```
 
 ## Tech Stack
 
 - **Next.js 15** with TypeScript
 - **React 19**
-- **Tailwind CSS** with custom earthy color palette
+- **Tailwind CSS**
 - **Web Speech API** for speech-to-text (Chrome-only)
-- **Gemini 3 Pro** for multimodal AI reasoning
-- **ElevenLabs** for high-quality text-to-speech
-
-## Project Structure
-
-```
-├── app/                # Next.js app directory
-│   ├── layout.tsx      # Root layout with PWA metadata
-│   ├── page.tsx        # Home page
-│   └── globals.css     # Global styles with Tailwind
-├── CLAUDE.md           # Development guidelines
-├── gardening-whisperer-plan.md  # Full project plan
-└── .env.example        # Environment variables template
-```
-
-## Development Roadmap
-
-### Week 1: Core Voice Loop ✓
-- [x] Next.js project setup
-- [ ] Web Speech API integration (STT)
-- [ ] Gemini API integration
-- [ ] ElevenLabs integration (TTS)
-- [ ] Basic voice loop: speak → AI responds → speak again
-
-### Week 2: Garden Walk Structure
-- [ ] Semi-structured question flow
-- [ ] Coverage tracking logic
-- [ ] Two-layer prompt architecture
-- [ ] Turn-taking with "anything else?" pattern
-
-### Week 3: Photos & Polish
-- [ ] Camera integration
-- [ ] Image analysis via Gemini
-- [ ] Visual design implementation
-- [ ] Mobile optimization
-
-### Week 4: Demo Preparation
-- [ ] Session summary & share feature
-- [ ] Bug fixes
-- [ ] Record demo video
+- **Gemini 2.0 Flash** for multimodal AI reasoning (text + images + live audio)
+- **Custom Node server** with WebSocket for Gemini Live streaming
+- **Self-signed HTTPS** for local development (required for mic/audio APIs)
 
 ## License
 
