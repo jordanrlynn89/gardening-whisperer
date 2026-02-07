@@ -287,7 +287,7 @@ describe('Voice Interaction Flow', () => {
         care_history: false,
       };
 
-      const coveredTopics = Object.keys(coverage).filter((k) => coverage[k]);
+      const coveredTopics = Object.keys(coverage).filter((k) => coverage[k as keyof typeof coverage]);
 
       expect(coveredTopics).toContain('plant_id');
       expect(coveredTopics.length).toBe(1);
