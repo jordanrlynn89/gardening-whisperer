@@ -250,14 +250,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
 
       // Start getUserMedia IMMEDIATELY while gesture is still fresh
       console.log('[useGeminiLive] Requesting mic access...');
-      const micPromise = navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      const micPromise = navigator.mediaDevices.getUserMedia({ audio: true });
 
       // ── Step 2: Start WebSocket + AudioWorklet + mic in PARALLEL ──
       // All three can proceed simultaneously, reducing total connection time.
