@@ -19,43 +19,43 @@ export function useAmbientSound({
   const birdsAudioRef = useRef<HTMLAudioElement | null>(null);
   const isPlayingRef = useRef(false);
 
+  // No eager loading — audio is created on demand in startAmbient()
+
+  // Cleanup on unmount
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    const audio = new Audio('/sounds/birds.mp3');
-    audio.loop = true;
-    audio.volume = volume;
-    audio.onerror = () => {
-      console.log('Audio file not found: /sounds/birds.mp3');
-    };
-    birdsAudioRef.current = audio;
-
     return () => {
       birdsAudioRef.current?.pause();
       birdsAudioRef.current = null;
     };
-  }, [volume]);
+  }, []);
 
   const startAmbient = useCallback(() => {
     if (isPlayingRef.current) return;
     isPlayingRef.current = true;
 
-    if (birdsAudioRef.current) {
-      birdsAudioRef.current.volume = 0;
-      birdsAudioRef.current.play().catch(() => {});
-
-      let vol = 0;
-      const fadeIn = setInterval(() => {
-        vol += 0.01;
-        if (vol >= volume) {
-          vol = volume;
-          clearInterval(fadeIn);
-        }
-        if (birdsAudioRef.current) {
-          birdsAudioRef.current.volume = vol;
-        }
-      }, 50);
+    // Lazy load audio on first use
+    if (!birdsAudioRef.current) {
+      const audio = new Audio('/sounds/birds-loop.mp3');
+      audio.loop = true;
+      audio.volume = 0;
+      audio.onerror = () => console.log('[useAmbientSound] Failed to load birds-loop.mp3');
+      birdsAudioRef.current = audio;
     }
+
+    birdsAudioRef.current.volume = 0;
+    birdsAudioRef.current.play().catch(() => {});
+
+    let vol = 0;
+    const fadeIn = setInterval(() => {
+      vol += 0.01;
+      if (vol >= volume) {
+        vol = volume;
+        clearInterval(fadeIn);
+      }
+      if (birdsAudioRef.current) {
+        birdsAudioRef.current.volume = vol;
+      }
+    }, 50);
   }, [volume]);
 
   const stopAmbient = useCallback(() => {
