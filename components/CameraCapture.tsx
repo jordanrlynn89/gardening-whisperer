@@ -283,7 +283,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
           {/* Voice hint */}
           <div className="absolute bottom-full mb-4 text-center">
-            <p className="text-xs text-stone-500 font-light">Tap to capture or say &quot;take photo&quot;</p>
+            <p className="text-xs text-stone-400 font-light">Tap to capture or say &quot;take photo&quot;</p>
           </div>
         </div>
       )}

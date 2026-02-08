@@ -437,7 +437,7 @@ export function VoiceLoop() {
                   ? 'text-blue-400'
                   : isListening
                   ? 'text-green-400'
-                  : 'text-stone-500'
+                  : 'text-stone-400'
               }`}>
                 {isSpeaking ? 'AI Speaking...' : isListening ? 'Listening...' : isConnected ? 'Connected' : 'Connecting...'}
               </span>
@@ -644,7 +644,7 @@ export function VoiceLoop() {
                   {allMessages.length > 0 ? (
                     allMessages.map((m, i) => (
                       <div key={i} className="mb-3">
-                        <span className={`font-bold text-xs uppercase ${m.role === 'assistant' ? 'text-green-500' : 'text-stone-500'}`}>
+                        <span className={`font-bold text-xs uppercase ${m.role === 'assistant' ? 'text-green-500' : 'text-stone-400'}`}>
                           {m.role === 'assistant' ? 'Gardener' : 'You'}
                         </span>
                         <p className="mt-1">{m.content}</p>
@@ -678,7 +678,7 @@ export function VoiceLoop() {
                   </div>
                   <p className="text-xs text-stone-400 mb-1">Light</p>
                   <p className="text-sm font-semibold text-stone-100">{summaryData.careRecommendations.light}</p>
-                  <p className="text-xs text-stone-500 mt-1">{summaryData.careRecommendations.lightDetail}</p>
+                  <p className="text-xs text-stone-400 mt-1">{summaryData.careRecommendations.lightDetail}</p>
                 </div>
 
                 {/* Water */}
@@ -690,7 +690,7 @@ export function VoiceLoop() {
                   </div>
                   <p className="text-xs text-stone-400 mb-1">Water</p>
                   <p className="text-sm font-semibold text-stone-100">{summaryData.careRecommendations.water}</p>
-                  <p className="text-xs text-stone-500 mt-1">{summaryData.careRecommendations.waterDetail}</p>
+                  <p className="text-xs text-stone-400 mt-1">{summaryData.careRecommendations.waterDetail}</p>
                 </div>
 
                 {/* Temperature */}
@@ -702,7 +702,7 @@ export function VoiceLoop() {
                   </div>
                   <p className="text-xs text-stone-400 mb-1">Temp</p>
                   <p className="text-sm font-semibold text-stone-100">{summaryData.careRecommendations.temp}</p>
-                  <p className="text-xs text-stone-500 mt-1">{summaryData.careRecommendations.tempDetail}</p>
+                  <p className="text-xs text-stone-400 mt-1">{summaryData.careRecommendations.tempDetail}</p>
                 </div>
               </div>
             </div>
