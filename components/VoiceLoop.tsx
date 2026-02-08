@@ -502,6 +502,16 @@ export function VoiceLoop() {
             </div>
           </div>
 
+          {/* Visually hidden live region for screen readers to follow the conversation */}
+          <div
+            aria-live="polite"
+            aria-atomic="false"
+            className="sr-only"
+          >
+            {aiTranscript && <p>Gardener: {aiTranscript}</p>}
+            {userTranscript && <p>You: {userTranscript}</p>}
+          </div>
+
           {/* Garden Journey Visual */}
           <div className="flex-1 flex items-center justify-center pb-40">
             <GardenJourney currentStage={currentStage} isWalking={isWalking} />
@@ -534,6 +544,8 @@ export function VoiceLoop() {
 
           {photoState === 'processing' && (
             <div
+              role="status"
+              aria-label="Analyzing your plant photo"
               style={{
                 position: 'fixed',
                 top: 0,
@@ -549,9 +561,14 @@ export function VoiceLoop() {
               className="animate-in fade-in duration-200"
             >
               <div style={{ textAlign: 'center', color: '#fff' }} className="backdrop-blur-sm bg-stone-900/50 rounded-3xl p-8 border border-stone-700/50">
-                <div className="animate-spin rounded-full h-16 w-16 border-b-3 border-green-500 mx-auto mb-4" />
-                <p className="text-xl font-medium text-stone-100 mb-2">Uploading photo...</p>
-                <p className="text-sm text-stone-400">Preparing for analysis</p>
+                <div className="relative w-16 h-16 mx-auto mb-4">
+                  <div className="animate-spin rounded-full h-16 w-16 border-b-3 border-green-500" />
+                  <svg className="absolute inset-0 m-auto w-8 h-8 text-green-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <path d="M12 22C16.4183 22 20 18.3541 20 13.8567C20 9.39453 17.4467 4.18759 13.4629 2.32555C12.9986 2.10852 12.4993 2 12 2M12 22C7.58172 22 4 18.3541 4 13.8567C4 12.2707 4.32258 10.5906 4.91731 9M12 22V2" />
+                  </svg>
+                </div>
+                <p className="text-xl font-medium text-stone-100 mb-2">Analyzing your plant...</p>
+                <p className="text-sm text-stone-400">This usually takes a few seconds</p>
               </div>
             </div>
           )}
