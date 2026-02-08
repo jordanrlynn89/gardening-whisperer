@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 
-const PHOTO_ANALYSIS_PROMPT = `You are a plant diagnosis assistant helping during a garden walk conversation. Analyze this photo and describe:
-1. What plant you see (species if identifiable)
-2. Overall health — does it look healthy, stressed, or sick?
-3. Any visible issues: discoloration, spots, wilting, pests, damage
-4. Notable details about leaves, stems, soil, or surroundings
+const PHOTO_ANALYSIS_PROMPT = `You are a plant diagnosis assistant. Describe ONLY what you can directly observe in this photo — nothing more.
 
-Keep your description conversational and concise (3-5 sentences). This will be read aloud to the user, so be natural and direct.`;
+Rules:
+- Only state facts you can actually see in the image. Do NOT guess, infer, or speculate about anything not clearly visible.
+- If you cannot identify the plant species with confidence, say so explicitly: "I can't identify the exact species from this photo."
+- If the image is blurry, too dark, or the plant is partially visible, say so. Do not describe details you cannot see.
+- Do NOT reference the conversation history to fill in gaps — only describe what the photo shows.
+
+Describe in 3-5 sentences: what plant you see (or that you can't tell), its visible health, and any clearly visible issues. This will be read aloud.`;
 
 export async function POST(request: NextRequest) {
   try {

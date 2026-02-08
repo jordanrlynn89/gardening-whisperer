@@ -7,6 +7,7 @@ interface UseGeminiLiveReturn {
   disconnect: () => void;
   sendImage: (imageData: string, text?: string) => void;
   sendText: (text: string) => void;
+  suppressOutput: (enabled: boolean) => void;
   pauseMic: () => void;
   resumeMic: () => void;
   isConnected: boolean;
@@ -552,11 +553,17 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     );
   }, []);
 
+  const suppressOutput = useCallback((enabled: boolean) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ type: 'suppress_output', enabled }));
+  }, []);
+
   return {
     connect,
     disconnect,
     sendImage,
     sendText,
+    suppressOutput,
     pauseMic,
     resumeMic,
     isConnected,

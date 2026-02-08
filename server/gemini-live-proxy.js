@@ -41,7 +41,25 @@ IMPORTANT RULES:
 - Only move to the next stage after you've gathered enough info for the current one.
 - Keep the conversation natural and flowing, like a knowledgeable gardener friend
 - Each response should be short (1-3 sentences) since this is voice conversation
-- Always end with a clear wrap-up containing "happy gardening" so the user knows the walk is over`;
+- Always end with a clear wrap-up containing "happy gardening" so the user knows the walk is over
+
+ABSOLUTE RULE — YOU ARE BLIND UNTIL GIVEN A PHOTO:
+You have NO eyes and cannot see anything. You are a voice assistant only.
+
+FORBIDDEN — never say these or anything like them:
+- "I can see..." / "I notice..." / "Looking at..." / "From what I can see..."
+- "Those spots look like..." / "The yellowing appears to be..."
+- Any sentence that implies you visually observed something
+
+You may ONLY use visual language after receiving a message that begins with "[Photo analysis]". That message is the ONLY source of visual truth. Until then, you know nothing about what the plant looks like — you only know what the user told you in words.
+
+The user saying "my leaves are yellow" does NOT mean you can say "I can see the yellowing." You heard them describe it. Say: "You mentioned the leaves are yellowing" — NOT "I can see the yellowing."
+
+After receiving "[Photo analysis] ...":
+- Do NOT say the words "photo analysis" aloud
+- Use the visual details naturally: "From the photo, I can see..." or "Looking at the photo..."
+- If the analysis says the image was unclear, say: "The photo wasn't clear enough for me to make out the details"
+- Do not add ANY visual details not explicitly stated in the [Photo analysis] text`;
 
 class GeminiLiveProxy {
   constructor(clientWs) {
@@ -49,6 +67,7 @@ class GeminiLiveProxy {
     this.session = null;
     this.isConnected = false;
     this._accumulatedAiText = '';
+    this._suppressOutput = false;
   }
 
   async connect() {
@@ -134,13 +153,28 @@ class GeminiLiveProxy {
         // starts with '{'
         const msg = JSON.parse(data.toString());
 
+        if (msg.type === 'suppress_output') {
+          this._suppressOutput = !!msg.enabled;
+          console.log(`[GeminiLive] Output suppression: ${this._suppressOutput}`);
+          return;
+        }
+
         if (msg.type === 'text') {
           // Text message (e.g., injected photo analysis from Gemini 3)
+          // Lift suppression so the response to the photo is heard
+          this._suppressOutput = false;
+          console.log('[GeminiLive] Output suppression: false (text message received)');
+          // Reformat photo analysis so Gemini understands context without reading prefix aloud
+          let text = msg.text;
+          if (text.startsWith('[Photo analysis]')) {
+            text = text.replace('[Photo analysis] ',
+              'Here is what was observed in the photo the user just showed you: ');
+          }
           this.session.sendClientContent({
             turns: [
               {
                 role: 'user',
-                parts: [{ text: msg.text }],
+                parts: [{ text }],
               },
             ],
             turnComplete: true,
@@ -176,6 +210,27 @@ class GeminiLiveProxy {
 
     if (msg.serverContent) {
       const content = msg.serverContent;
+
+      // During photo flow, suppress ALL Gemini output except input_transcript
+      // (needed for voice commands like "take photo") and interrupted.
+      // Don't accumulate AI text either — prevents false "happy gardening" detection.
+      if (this._suppressOutput) {
+        if (content.inputTranscription?.text) {
+          if (VERBOSE) console.log('[GeminiLive] [suppressed] User said:', content.inputTranscription.text);
+          this._sendToClient({
+            type: 'input_transcript',
+            text: content.inputTranscription.text,
+          });
+        }
+        if (content.interrupted) {
+          console.log('[GeminiLive] [suppressed] Turn interrupted by user');
+          this._sendToClient({ type: 'interrupted' });
+        }
+        if (content.turnComplete) {
+          console.log('[GeminiLive] [suppressed] Turn complete (not forwarded)');
+        }
+        return;
+      }
 
       // Input transcription (what the user said)
       if (content.inputTranscription?.text) {

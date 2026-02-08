@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useGeminiLive } from '@/hooks/useGeminiLive';
 import { useAmbientSound } from '@/hooks/useAmbientSound';
 import { useGoogleCalendar } from '@/hooks/useGoogleCalendar';
+import { useSpeechCommand } from '@/hooks/useSpeechCommand';
 import { formatCalendarEvent, createCalendarEvent } from '@/lib/googleCalendar';
 import { detectStageFromMessages, STAGE_ORDER } from '@/lib/stageDetection';
 import { generateSummaryData } from '@/lib/summaryGeneration';
@@ -18,15 +19,41 @@ const GardenJourney = dynamic(
   () => import('./GardenJourney').then(mod => ({ default: mod.GardenJourney })),
   { ssr: false }
 );
-const PhotoChooser = dynamic(() => import('./PhotoChooser'), { ssr: false });
 const CameraCapture = dynamic(
   () => import('./CameraCapture').then(mod => ({ default: mod.CameraCapture })),
   { ssr: false }
 );
-const PhotoLibrary = dynamic(() => import('./PhotoLibrary'), { ssr: false });
 
 type AppState = 'idle' | 'connecting' | 'active' | 'summary' | 'error';
-type PhotoState = 'none' | 'choosing_source' | 'capturing_camera' | 'selecting_library' | 'processing';
+type PhotoState = 'none' | 'capturing_camera' | 'processing';
+
+function matchesCaptureCommand(text: string): boolean {
+  return (
+    text.includes('take photo') || text.includes('take a photo') ||
+    text.includes('take the photo') || text.includes('capture photo') ||
+    text.includes('capture the photo') || text.includes('snap') ||
+    text.includes('take picture') || text.includes('take a picture') ||
+    text.includes('take the picture') || text.includes('this is the plant') ||
+    text.includes('this is my plant') || text.includes('here is the plant') ||
+    text.includes('here is my plant')
+  );
+}
+
+function matchesDeclineCommand(text: string): boolean {
+  return (
+    text.includes("don't want") ||
+    text.includes("no photo") ||
+    text.includes("no picture") ||
+    text.includes("can't take") ||
+    text.includes("skip") ||
+    text.includes("not right now") ||
+    text.includes("maybe later") ||
+    text.includes("no thanks") ||
+    text.includes("never mind") ||
+    text.includes("without a photo") ||
+    text.includes("without photo")
+  );
+}
 
 // SummaryData type and business logic functions are now in lib/ modules:
 // - lib/plantExtraction.ts
@@ -48,6 +75,8 @@ export function VoiceLoop() {
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const prevStageRef = useRef<JourneyStage>('start');
+  const capturePhotoRef = useRef<(() => void) | null>(null);
+  const photoCooldownUntilRef = useRef<number>(0);
 
   const { isConnected: isCalendarConnected, accessToken: calendarToken, isGISReady, signIn: calendarSignIn, signOut: calendarSignOut } = useGoogleCalendar();
 
@@ -60,6 +89,7 @@ export function VoiceLoop() {
     connect,
     disconnect,
     sendText,
+    suppressOutput,
     pauseMic,
     resumeMic,
     isConnected,
@@ -96,6 +126,40 @@ export function VoiceLoop() {
         setVolume(0);
       }, 2000);
     },
+  });
+
+  // Stable ref so the speech command callback always has the latest sendText
+  const sendTextRef = useRef(sendText);
+  sendTextRef.current = sendText;
+
+  // Local speech recognition for voice commands during photo capture.
+  // This is completely separate from Gemini's mic — it uses the browser's
+  // Web Speech API locally so we can detect "take photo" / "skip" commands
+  // without sending any audio to Gemini.
+  const { start: startSpeechCommand, stop: stopSpeechCommand } = useSpeechCommand({
+    onTranscript: useCallback((text: string) => {
+      const lower = text.toLowerCase();
+      if (matchesCaptureCommand(lower)) {
+        console.log('[VoiceLoop] Voice capture command detected via local speech');
+        if (capturePhotoRef.current) {
+          capturePhotoRef.current();
+        } else {
+          console.log('[VoiceLoop] Camera not ready yet, queuing capture');
+          const poll = setInterval(() => {
+            if (capturePhotoRef.current) {
+              clearInterval(poll);
+              capturePhotoRef.current();
+            }
+          }, 200);
+          setTimeout(() => clearInterval(poll), 5000);
+        }
+      } else if (matchesDeclineCommand(lower)) {
+        console.log('[VoiceLoop] User declined photo verbally via local speech');
+        setPhotoState('none');
+        // Gemini never heard "skip" (mic was paused) — nudge it to continue the walk
+        sendTextRef.current('[User declined to take a photo. Continue the garden walk from where you left off.]');
+      }
+    }, []),
   });
 
   // Update volume based on listening/speaking state
@@ -140,13 +204,14 @@ export function VoiceLoop() {
 
     for (const msg of newMessages) {
       const source = msg.role === 'assistant' ? 'ai' : 'user';
-      if (hasPhotoTrigger(msg.content, source) && photoState === 'none') {
+      if (hasPhotoTrigger(msg.content, source) && photoState === 'none' && Date.now() > photoCooldownUntilRef.current) {
         console.log('[VoiceLoop] Photo trigger detected in completed message:', msg.content.slice(0, 80));
         if (source === 'ai' && isSpeaking) {
-          // AI is still speaking — defer showing the modal until audio finishes
+          // AI is still speaking — defer showing camera until audio finishes
           pendingPhotoTriggerRef.current = true;
         } else {
-          setPhotoState('choosing_source');
+          pendingPhotoTriggerRef.current = false;
+          setPhotoState('capturing_camera');
           speakPhotoPrompt();
         }
         break;
@@ -156,17 +221,17 @@ export function VoiceLoop() {
 
   // Show photo UI once AI finishes speaking (deferred from above)
   useEffect(() => {
-    if (!isSpeaking && pendingPhotoTriggerRef.current && photoState === 'none') {
+    if (!isSpeaking && pendingPhotoTriggerRef.current && photoState === 'none' && Date.now() > photoCooldownUntilRef.current) {
       pendingPhotoTriggerRef.current = false;
-      console.log('[VoiceLoop] AI finished speaking — showing photo chooser');
-      setPhotoState('choosing_source');
+      console.log('[VoiceLoop] AI finished speaking — showing camera');
+      setPhotoState('capturing_camera');
       speakPhotoPrompt();
     }
   }, [isSpeaking, photoState, speakPhotoPrompt]);
 
   // Also detect from streaming AI transcripts (faster response)
   useEffect(() => {
-    if (!aiTranscript || photoState !== 'none') return;
+    if (!aiTranscript || photoState !== 'none' || Date.now() <= photoCooldownUntilRef.current) return;
     if (hasPhotoTrigger(aiTranscript, 'ai')) {
       // Mark pending — the completed messages effect or the isSpeaking watcher will fire it
       pendingPhotoTriggerRef.current = true;
@@ -174,44 +239,31 @@ export function VoiceLoop() {
   }, [aiTranscript, photoState]);
 
   useEffect(() => {
-    if (!userTranscript || photoState !== 'none') return;
+    if (!userTranscript || photoState !== 'none' || Date.now() <= photoCooldownUntilRef.current) return;
     if (hasPhotoTrigger(userTranscript, 'user')) {
-      setPhotoState('choosing_source');
+      pendingPhotoTriggerRef.current = false;
+      setPhotoState('capturing_camera');
       speakPhotoPrompt();
     }
   }, [userTranscript, photoState, speakPhotoPrompt]);
 
-  // Pause mic when actively using camera/library so AI waits.
-  // Keep mic on during 'choosing_source' so user can verbally decline.
+  // Manage mic, output suppression, and local speech recognition during photo flow.
+  // Pause mic to Gemini entirely so it can't hear or process audio during capture.
+  // Use local Web Speech API (useSpeechCommand) for voice commands instead.
   useEffect(() => {
-    if (photoState === 'capturing_camera' || photoState === 'selecting_library' || photoState === 'processing') {
+    if (photoState === 'capturing_camera') {
       pauseMic();
+      suppressOutput(true);
+      startSpeechCommand();
+    } else if (photoState === 'processing') {
+      stopSpeechCommand();
+      // mic stays paused; suppressOutput already true from capturing_camera
     } else {
+      stopSpeechCommand();
+      suppressOutput(false);
       resumeMic();
     }
-  }, [photoState, pauseMic, resumeMic]);
-
-  // Detect verbal photo decline while chooser is showing
-  useEffect(() => {
-    if (photoState !== 'choosing_source' || !userTranscript) return;
-    const lower = userTranscript.toLowerCase();
-    if (
-      lower.includes("don't want") ||
-      lower.includes("no photo") ||
-      lower.includes("no picture") ||
-      lower.includes("can't take") ||
-      lower.includes("skip") ||
-      lower.includes("not right now") ||
-      lower.includes("maybe later") ||
-      lower.includes("no thanks") ||
-      lower.includes("never mind") ||
-      lower.includes("without a photo") ||
-      lower.includes("without photo")
-    ) {
-      console.log('[VoiceLoop] User declined photo verbally');
-      setPhotoState('none');
-    }
-  }, [userTranscript, photoState]);
+  }, [photoState, pauseMic, resumeMic, suppressOutput, startSpeechCommand, stopSpeechCommand]);
 
   // Note: Summary auto-appears when AI says "happy gardening"
   // Detection happens server-side in gemini-live-proxy.js which sends a 'walk_complete' message
@@ -320,19 +372,19 @@ export function VoiceLoop() {
     setCurrentStage('start');
   };
 
-  const handleCameraSelect = () => {
-    setPhotoState('capturing_camera');
-  };
-
-  const handleLibrarySelect = () => {
-    setPhotoState('selecting_library');
-  };
-
   const handlePhotoCapture = useCallback(
     async (imageData: string) => {
       console.log('[VoiceLoop] Photo captured, size:', imageData?.length || 0);
 
+      if (!imageData) {
+        console.warn('[VoiceLoop] Capture returned empty — closing camera');
+        setPhotoState('none');
+        return;
+      }
+
       setPhotoState('processing');
+      // suppressOutput(true) was already sent when camera opened;
+      // server will auto-lift it when the photo analysis text arrives via sendText.
 
       // Build conversation context for Gemini 3
       const backup = messagesRef.current ?? [];
@@ -362,6 +414,8 @@ export function VoiceLoop() {
         sendText('I tried to analyze the photo but had trouble. Can you describe what you see instead?');
       }
 
+      // 15s cooldown so the AI's response about the photo doesn't re-trigger camera
+      photoCooldownUntilRef.current = Date.now() + 15000;
       setPhotoState('none');
     },
     [sendText, messages, messagesRef]
@@ -466,13 +520,13 @@ export function VoiceLoop() {
           </div>
 
           {/* Photo UI States */}
-          {photoState === 'choosing_source' && (
-            <PhotoChooser onCameraSelect={handleCameraSelect} onLibrarySelect={handleLibrarySelect} onCancel={handlePhotoCancel} />
+          {photoState === 'capturing_camera' && (
+            <CameraCapture
+              onCapture={handlePhotoCapture}
+              onCancel={handlePhotoCancel}
+              onCaptureReady={(fn) => { capturePhotoRef.current = fn; }}
+            />
           )}
-
-          {photoState === 'capturing_camera' && <CameraCapture onCapture={handlePhotoCapture} onCancel={handlePhotoCancel} />}
-
-          {photoState === 'selecting_library' && <PhotoLibrary onSelect={handlePhotoCapture} onCancel={handlePhotoCancel} onError={(msg) => console.error('[PhotoLibrary]', msg)} />}
 
           {photoState === 'processing' && (
             <div
