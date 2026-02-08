@@ -203,17 +203,9 @@ describe('useGeminiLive — connection establishment', () => {
   it('creates AudioContext and requests mic on connect', async () => {
     await connectHook();
 
-    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith(
-      expect.objectContaining({
-        audio: expect.objectContaining({
-          sampleRate: 16000,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        }),
-      })
-    );
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+      audio: true,
+    });
   });
 
   it('sets WebSocket binaryType to arraybuffer', async () => {
