@@ -28,40 +28,35 @@ export function useAmbientSound({
     }
   }, []);
 
-  // Lazy-initialize the Audio element (only on first use, not on mount)
-  const getOrCreateAudio = useCallback((): HTMLAudioElement | null => {
-    if (typeof window === 'undefined') return null;
-    if (birdsAudioRef.current) return birdsAudioRef.current;
+  // Create Audio element on mount so the browser can preload it.
+  // Desktop Chrome requires this — lazily-created Audio elements can be
+  // blocked by autoplay policy even with a user gesture.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
 
     // Trimmed 30s loop (586 KB) — created by `node scripts/trim-audio.js`
     const audio = new Audio('/sounds/birds-loop.mp3');
     audio.loop = true;
     audio.volume = volume;
     birdsAudioRef.current = audio;
-    return audio;
-  }, [volume]);
 
-  // Clean up on unmount — pause audio and clear any active fade interval
-  useEffect(() => {
     return () => {
-      if (fadeIntervalRef.current !== null) {
-        clearInterval(fadeIntervalRef.current);
-        fadeIntervalRef.current = null;
-      }
+      clearFadeInterval();
       birdsAudioRef.current?.pause();
       birdsAudioRef.current = null;
     };
-  }, []);
+  }, [volume, clearFadeInterval]);
 
   const startAmbient = useCallback(() => {
     if (isPlayingRef.current) return;
     isPlayingRef.current = true;
 
-    const audio = getOrCreateAudio();
-    if (audio) {
+    if (birdsAudioRef.current) {
       clearFadeInterval();
-      audio.volume = 0;
-      audio.play().catch(() => {});
+      birdsAudioRef.current.volume = 0;
+      birdsAudioRef.current.play().catch((err) => {
+        console.warn('[useAmbientSound] play() failed:', err.message);
+      });
 
       let vol = 0;
       fadeIntervalRef.current = setInterval(() => {
@@ -75,7 +70,7 @@ export function useAmbientSound({
         }
       }, 50);
     }
-  }, [volume, getOrCreateAudio, clearFadeInterval]);
+  }, [volume, clearFadeInterval]);
 
   const stopAmbient = useCallback(() => {
     isPlayingRef.current = false;

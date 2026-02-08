@@ -44,18 +44,8 @@ describe('useAmbientSound', () => {
     expect(result.current.unduck).toBeDefined();
   });
 
-  it('should NOT create Audio on mount (lazy-load)', () => {
+  it('should create Audio on mount for preloading', () => {
     renderHook(() => useAmbientSound());
-
-    expect(global.Audio).not.toHaveBeenCalled();
-  });
-
-  it('should create Audio lazily on first startAmbient call', () => {
-    const { result } = renderHook(() => useAmbientSound({ volume: 0.2 }));
-
-    act(() => {
-      result.current.startAmbient();
-    });
 
     expect(global.Audio).toHaveBeenCalledTimes(1);
     expect(global.Audio).toHaveBeenCalledWith('/sounds/birds-loop.mp3');
