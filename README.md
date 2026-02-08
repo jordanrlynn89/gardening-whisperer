@@ -68,15 +68,43 @@ npm run build         # Production build
 npm start             # Start production server
 ```
 
+## Features
+
+- **Voice-first garden walks** — hands-free spoken conversation with AI about your plants
+- **Photo diagnosis** — capture or upload plant photos for visual analysis mid-conversation
+- **Garden walk summary** — coverage tracking, care recommendations, and shareable summary
+- **Google Calendar reminders** — schedule follow-up checks directly from the summary
+- **PWA installable** — works as a standalone app on mobile (service worker + offline fallback)
+- **Ambient soundscape** — bird sounds fade in during walks, duck during AI speech
+
+## Architecture
+
+```
+VoiceLoop.tsx          → Main UI component (idle/connecting/active/summary states)
+hooks/useGeminiLive.ts → WebSocket voice conversation (mic → server → Gemini Live → audio)
+server.js              → HTTPS + WebSocket server (origin validation, rate limiting)
+server/gemini-live-proxy.js → Gemini Live API bridge
+lib/                   → Extracted business logic (plant extraction, stage detection, etc.)
+```
+
+Active data flow: **VoiceLoop → useGeminiLive → WebSocket → server.js → Gemini Live API**
+
 ## Tech Stack
 
-- **Next.js 15** with TypeScript
-- **React 19**
-- **Tailwind CSS**
-- **Web Speech API** for speech-to-text (Chrome-only)
-- **Gemini 2.0 Flash** for multimodal AI reasoning (text + images + live audio)
+- **Next.js 15** with TypeScript, **React 19**, **Tailwind CSS**
+- **Gemini 3 Pro** for multimodal AI (text + images + live audio via WebSocket)
 - **Custom Node server** with WebSocket for Gemini Live streaming
 - **Self-signed HTTPS** for local development (required for mic/audio APIs)
+- **PWA** with service worker, maskable icons, and offline fallback
+
+## Audio Optimization
+
+The ambient bird sounds use a trimmed 30-second loop (586 KB) instead of the full 18-minute file (22 MB). To regenerate:
+
+```bash
+# Requires ffmpeg (brew install ffmpeg)
+node scripts/trim-audio.js
+```
 
 ## License
 

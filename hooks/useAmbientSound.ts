@@ -18,64 +18,79 @@ export function useAmbientSound({
 }: UseAmbientSoundOptions = {}): UseAmbientSoundReturn {
   const birdsAudioRef = useRef<HTMLAudioElement | null>(null);
   const isPlayingRef = useRef(false);
+  const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Clean up fade interval helper
+  const clearFadeInterval = useCallback(() => {
+    if (fadeIntervalRef.current !== null) {
+      clearInterval(fadeIntervalRef.current);
+      fadeIntervalRef.current = null;
+    }
+  }, []);
+
+  // Create Audio element on mount so the browser can preload it.
+  // Desktop Chrome requires this — lazily-created Audio elements can be
+  // blocked by autoplay policy even with a user gesture.
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const audio = new Audio('/sounds/birds.mp3');
+    // Trimmed 30s loop (586 KB) — created by `node scripts/trim-audio.js`
+    const audio = new Audio('/sounds/birds-loop.mp3');
     audio.loop = true;
     audio.volume = volume;
-    audio.onerror = () => {
-      console.log('Audio file not found: /sounds/birds.mp3');
-    };
     birdsAudioRef.current = audio;
 
     return () => {
+      clearFadeInterval();
       birdsAudioRef.current?.pause();
       birdsAudioRef.current = null;
     };
-  }, [volume]);
+  }, [volume, clearFadeInterval]);
 
   const startAmbient = useCallback(() => {
     if (isPlayingRef.current) return;
     isPlayingRef.current = true;
 
     if (birdsAudioRef.current) {
+      clearFadeInterval();
       birdsAudioRef.current.volume = 0;
-      birdsAudioRef.current.play().catch(() => {});
+      birdsAudioRef.current.play().catch((err) => {
+        console.warn('[useAmbientSound] play() failed:', err.message);
+      });
 
       let vol = 0;
-      const fadeIn = setInterval(() => {
+      fadeIntervalRef.current = setInterval(() => {
         vol += 0.01;
         if (vol >= volume) {
           vol = volume;
-          clearInterval(fadeIn);
+          clearFadeInterval();
         }
         if (birdsAudioRef.current) {
           birdsAudioRef.current.volume = vol;
         }
       }, 50);
     }
-  }, [volume]);
+  }, [volume, clearFadeInterval]);
 
   const stopAmbient = useCallback(() => {
     isPlayingRef.current = false;
 
     if (!birdsAudioRef.current) return;
 
+    clearFadeInterval();
     const audio = birdsAudioRef.current;
     let vol = audio.volume;
-    const fadeOut = setInterval(() => {
+    fadeIntervalRef.current = setInterval(() => {
       vol -= 0.01;
       if (vol <= 0) {
         vol = 0;
         audio.pause();
         audio.currentTime = 0;
-        clearInterval(fadeOut);
+        clearFadeInterval();
       }
       audio.volume = vol;
     }, 30);
-  }, []);
+  }, [clearFadeInterval]);
 
   const duck = useCallback(() => {
     if (birdsAudioRef.current) {

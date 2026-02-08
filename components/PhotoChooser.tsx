@@ -14,24 +14,13 @@ const PhotoChooser: React.FC<PhotoChooserProps> = ({
   return (
     <div
       data-testid="photo-chooser-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose photo source"
       onClick={onCancel}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
     >
-      <style>{`
-        @keyframes modal-slide-up {
-          from {
-            opacity: 0;
-            transform: translateY(20px) scale(0.95);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0) scale(1);
-          }
-        }
-        .modal-entrance {
-          animation: modal-slide-up 0.3s ease-out;
-        }
-      `}</style>
+      {/* modal-entrance animation is in globals.css */}
       <div
         data-testid="photo-chooser-modal"
         onClick={(e) => e.stopPropagation()}
@@ -63,21 +52,7 @@ const PhotoChooser: React.FC<PhotoChooserProps> = ({
             </p>
           </div>
 
-          {/* Button container with staggered animation */}
-          <style>{`
-            @keyframes button-fade-in {
-              from {
-                opacity: 0;
-                transform: translateY(8px);
-              }
-              to {
-                opacity: 1;
-                transform: translateY(0);
-              }
-            }
-            .button-1 { animation: button-fade-in 0.4s ease-out 0.05s both; }
-            .button-2 { animation: button-fade-in 0.4s ease-out 0.15s both; }
-          `}</style>
+          {/* Button animations (button-1, button-2) are in globals.css */}
           <div className="flex flex-col gap-3">
             {/* Take a Picture button - primary action */}
             <button
@@ -119,7 +94,7 @@ const PhotoChooser: React.FC<PhotoChooserProps> = ({
 
           {/* Divider with subtle accent */}
           <div className="mt-6 pt-6 border-t border-stone-800/50 flex items-center justify-center">
-            <p className="text-xs text-stone-500 font-light">Or skip to continue talking</p>
+            <p className="text-xs text-stone-400 font-light">Or skip to continue talking</p>
           </div>
         </div>
       </div>

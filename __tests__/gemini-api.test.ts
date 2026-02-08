@@ -1,217 +1,275 @@
 /**
- * Tests for Gemini API integration
- * Covers API calls, response parsing, and error handling
+ * @jest-environment node
  */
 
-describe('Gemini API Integration', () => {
+/**
+ * Tests for the /api/analyze-photo route
+ *
+ * Tests input validation, size limits, error handling, and prompt construction
+ * with conversation context.
+ *
+ * Uses @jest-environment node so that the native Node.js Web API globals
+ * (Request, Response, Headers) are available — NextRequest requires them.
+ */
+
+// Mock the Google GenAI SDK before importing the route
+const mockGenerateContent = jest.fn();
+jest.mock('@google/genai', () => ({
+  GoogleGenAI: jest.fn().mockImplementation(() => ({
+    models: {
+      generateContent: mockGenerateContent,
+    },
+  })),
+}));
+
+// Import AFTER polyfills and mocks
+import { POST } from '../app/api/analyze-photo/route';
+import { NextRequest } from 'next/server';
+
+// Helper to create a NextRequest with JSON body
+function createRequest(body: Record<string, unknown>): NextRequest {
+  return new NextRequest('http://localhost:3003/api/analyze-photo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+describe('/api/analyze-photo -- input validation', () => {
+  const originalEnv = process.env;
+
   beforeEach(() => {
     jest.clearAllMocks();
-    // Clear env vars
-    delete process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+    process.env = { ...originalEnv, GEMINI_API_KEY: 'test-api-key', NODE_ENV: 'test' };
   });
 
-  describe('API Key Configuration', () => {
-    it('should require GEMINI_API_KEY environment variable', () => {
-      process.env.GEMINI_API_KEY = '';
-
-      // The app should validate this at startup
-      expect(process.env.GEMINI_API_KEY).toBe('');
-    });
-
-    it('should have GEMINI_API_KEY configured', () => {
-      const apiKey = process.env.GEMINI_API_KEY;
-      // In CI/actual testing, this should be set
-      if (apiKey) {
-        expect(typeof apiKey).toBe('string');
-        expect(apiKey.length).toBeGreaterThan(0);
-      }
-    });
+  afterAll(() => {
+    process.env = originalEnv;
   });
 
-  describe('WebSocket Message Format', () => {
-    it('should format audio input correctly for Gemini Live API', () => {
-      // Gemini Live expects specific message format
-      const audioChunk = new Int16Array([1, 2, 3, 4]);
+  it('returns 400 when imageData is missing', async () => {
+    const req = createRequest({});
+    const res = await POST(req);
+    const data = await res.json();
 
-      // The message should be properly encoded
-      expect(audioChunk).toBeInstanceOf(Int16Array);
-      expect(audioChunk.length).toBeGreaterThan(0);
-    });
-
-    it('should handle Gemini Live response format', () => {
-      // Typical response has two parts: JSON and audio
-      const mockResponse = {
-        type: 'server_content',
-        serverContent: {
-          modelTurn: {
-            turns: [
-              {
-                role: 'model',
-                parts: [
-                  {
-                    text: 'Your plant looks healthy.',
-                  },
-                ],
-              },
-            ],
-          },
-        },
-      };
-
-      expect(mockResponse.type).toBe('server_content');
-      expect(mockResponse.serverContent.modelTurn.turns[0].parts[0].text).toBeDefined();
-    });
-
-    it('should handle audio bytes in response', () => {
-      // Gemini sends audio as binary data
-      const audioData = new ArrayBuffer(2048);
-      expect(audioData.byteLength).toBe(2048);
-    });
+    expect(res.status).toBe(400);
+    expect(data.success).toBe(false);
+    expect(data.error).toContain('required');
   });
 
-  describe('Error Handling', () => {
-    it('should handle API timeout gracefully', () => {
-      const timeout = 30000; // 30 seconds
-      expect(timeout).toBeGreaterThan(0);
-    });
+  it('returns 400 when imageData is empty string', async () => {
+    const req = createRequest({ imageData: '' });
+    const res = await POST(req);
+    const data = await res.json();
 
-    it('should handle authentication errors', () => {
-      // 403 Forbidden for invalid API key
-      const statusCode = 403;
-      expect(statusCode).toBe(403);
-    });
-
-    it('should handle rate limiting', () => {
-      // 429 Too Many Requests
-      const statusCode = 429;
-      expect(statusCode).toBe(429);
-    });
-
-    it('should recover from temporary connection loss', () => {
-      // Should attempt reconnection
-      const maxRetries = 5;
-      expect(maxRetries).toBeGreaterThan(0);
-    });
+    expect(res.status).toBe(400);
+    expect(data.success).toBe(false);
   });
 
-  describe('Multi-modal Input (Text + Image)', () => {
-    it('should handle image data for plant analysis', () => {
-      const imageData = 'data:image/jpeg;base64,/9j/4AAQSkZJRg...';
+  it('returns 413 when image exceeds 10 MB', async () => {
+    const largeImageData = 'x'.repeat(10 * 1024 * 1024 + 1);
+    const req = createRequest({ imageData: largeImageData });
+    const res = await POST(req);
+    const data = await res.json();
 
-      // Should be valid base64 data URL
-      expect(imageData).toMatch(/^data:image\/\w+;base64,/);
-    });
-
-    it('should send image with text context', () => {
-      const payload = {
-        text: 'My tomato plant has yellowing leaves',
-        image: 'data:image/jpeg;base64,test',
-      };
-
-      expect(payload.text).toBeDefined();
-      expect(payload.image).toBeDefined();
-    });
-
-    it('should parse Gemini response with visual analysis', () => {
-      const response = {
-        analysis: {
-          observed: 'yellowing leaves',
-          confidence: 'likely',
-          cause: 'nitrogen deficiency',
-          action: 'Apply nitrogen fertilizer',
-        },
-      };
-
-      expect(response.analysis.observed).toBeDefined();
-      expect(response.analysis.cause).toBeDefined();
-    });
+    expect(res.status).toBe(413);
+    expect(data.success).toBe(false);
+    expect(data.error).toContain('too large');
   });
 
-  describe('Conversation Context Management', () => {
-    it('should maintain conversation history', () => {
-      const messages = [
-        { role: 'user', content: 'My plant is drooping' },
-        {
-          role: 'assistant',
-          content: 'Could be underwatered. How often do you water?',
-        },
-        { role: 'user', content: 'Once a week' },
-      ];
+  it('returns 500 when GEMINI_API_KEY is not configured', async () => {
+    delete process.env.GEMINI_API_KEY;
 
-      expect(messages.length).toBe(3);
-      expect(messages[0].role).toBe('user');
-      expect(messages[1].role).toBe('assistant');
-    });
+    const req = createRequest({ imageData: 'base64data' });
+    const res = await POST(req);
+    const data = await res.json();
 
-    it('should send full context in each request', () => {
-      const context = [
-        { role: 'user', content: 'I have a tomato plant' },
-        {
-          role: 'assistant',
-          content: 'Great! What symptoms are you seeing?',
-        },
-      ];
+    expect(res.status).toBe(500);
+    expect(data.success).toBe(false);
+    expect(data.error).toContain('GEMINI_API_KEY');
+  });
+});
 
-      // All messages should be included
-      expect(context.length).toBe(2);
-      expect(context.every((msg) => msg.role && msg.content)).toBe(true);
-    });
+describe('/api/analyze-photo -- successful analysis', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env = { ...originalEnv, GEMINI_API_KEY: 'test-api-key', NODE_ENV: 'test' };
   });
 
-  describe('Response Validation', () => {
-    it('should validate JSON response structure', () => {
-      const validResponse = {
-        type: 'content_part_delta',
-        contentPartDelta: {
-          text: 'Your plant needs water',
-        },
-      };
-
-      expect(validResponse.type).toBeDefined();
-      expect(validResponse.contentPartDelta).toBeDefined();
-    });
-
-    it('should handle streaming responses', () => {
-      // Gemini Live API streams responses
-      const chunks = [
-        { text: 'Your plant ' },
-        { text: 'is showing signs ' },
-        { text: 'of dehydration' },
-      ];
-
-      const fullResponse = chunks.map((c) => c.text).join('');
-      expect(fullResponse).toBe('Your plant is showing signs of dehydration');
-    });
-
-    it('should extract audio from response', () => {
-      // Binary audio data should be extracted
-      const response = {
-        audioContent: new Uint8Array([0xff, 0xfb, 0x90, 0x00]),
-      };
-
-      expect(response.audioContent).toBeInstanceOf(Uint8Array);
-      expect(response.audioContent.length).toBeGreaterThan(0);
-    });
+  afterAll(() => {
+    process.env = originalEnv;
   });
 
-  describe('Sample Rate Handling', () => {
-    it('should use 24kHz sample rate for Gemini', () => {
-      const SAMPLE_RATE = 24000;
-      expect(SAMPLE_RATE).toBe(24000);
+  it('returns analysis from Gemini on valid request', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: 'This appears to be a healthy tomato plant with some nitrogen deficiency.',
     });
 
-    it('should convert audio to PCM 16-bit', () => {
-      // Float32 to Int16 conversion
-      const float32 = new Float32Array([0.5, -0.5, 1.0, -1.0]);
-      const int16 = new Int16Array(float32.length);
+    const req = createRequest({ imageData: 'base64imagedata' });
+    const res = await POST(req);
+    const data = await res.json();
 
-      for (let i = 0; i < float32.length; i++) {
-        const s = Math.max(-1, Math.min(1, float32[i]));
-        int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-      }
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.analysis).toContain('tomato');
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+  });
 
-      expect(int16[0]).toBeGreaterThan(0);
-      expect(int16[1]).toBeLessThan(0);
+  it('strips data URL prefix from imageData', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: 'Healthy plant.',
     });
+
+    const req = createRequest({ imageData: 'data:image/jpeg;base64,abc123' });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+    const imagePart = callArgs.contents[0].parts[1];
+    expect(imagePart.inlineData.data).toBe('abc123');
+  });
+
+  it('includes conversation context in prompt when provided', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: 'Focused analysis based on context.',
+    });
+
+    const req = createRequest({
+      imageData: 'base64data',
+      conversationContext: 'User mentioned yellow leaves on their tomato plant',
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+    const textPart = callArgs.contents[0].parts[0];
+    expect(textPart.text).toContain('Conversation so far');
+    expect(textPart.text).toContain('yellow leaves');
+  });
+
+  it('truncates conversation context to 5000 chars', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: 'Analysis result.',
+    });
+
+    const longContext = 'a'.repeat(10000);
+    const req = createRequest({
+      imageData: 'base64data',
+      conversationContext: longContext,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+    const textPart = callArgs.contents[0].parts[0];
+    expect(textPart.text.length).toBeLessThan(10000 + 500);
+  });
+
+  it('handles non-string conversationContext gracefully', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: 'Analysis without context.',
+    });
+
+    const req = createRequest({
+      imageData: 'base64data',
+      conversationContext: 12345,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+    const textPart = callArgs.contents[0].parts[0];
+    expect(textPart.text).not.toContain('Conversation so far');
+  });
+});
+
+describe('/api/analyze-photo -- error handling', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env = { ...originalEnv, GEMINI_API_KEY: 'test-api-key', NODE_ENV: 'test' };
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('returns 500 when Gemini returns empty analysis', async () => {
+    mockGenerateContent.mockResolvedValueOnce({ text: '' });
+
+    const req = createRequest({ imageData: 'base64data' });
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(data.success).toBe(false);
+    expect(data.error).toContain('No analysis');
+  });
+
+  it('returns 500 when Gemini returns null text', async () => {
+    mockGenerateContent.mockResolvedValueOnce({ text: null });
+
+    const req = createRequest({ imageData: 'base64data' });
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(data.success).toBe(false);
+  });
+
+  it('returns 500 when Gemini API throws an error', async () => {
+    mockGenerateContent.mockRejectedValueOnce(new Error('API rate limit exceeded'));
+
+    const req = createRequest({ imageData: 'base64data' });
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(data.success).toBe(false);
+    expect(data.error).toBe('Photo analysis failed');
+  });
+
+  it('returns detailed error in development mode', async () => {
+    (process.env as Record<string, string>).NODE_ENV = 'development';
+    mockGenerateContent.mockRejectedValueOnce(new Error('Specific API error message'));
+
+    const req = createRequest({ imageData: 'base64data' });
+    const res = await POST(req);
+    const data = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(data.error).toBe('Specific API error message');
+  });
+
+  it('sends image as JPEG to Gemini', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: 'Analysis result.',
+    });
+
+    const req = createRequest({ imageData: 'base64data' });
+    await POST(req);
+
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+    const imagePart = callArgs.contents[0].parts[1];
+    expect(imagePart.inlineData.mimeType).toBe('image/jpeg');
+  });
+
+  it('uses gemini-3-flash-preview model', async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: 'Analysis.',
+    });
+
+    const req = createRequest({ imageData: 'base64data' });
+    await POST(req);
+
+    const callArgs = mockGenerateContent.mock.calls[0][0];
+    expect(callArgs.model).toBe('gemini-3-flash-preview');
   });
 });

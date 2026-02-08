@@ -45,7 +45,15 @@ export async function POST(request: NextRequest) {
     // Build prompt with conversation context
     let prompt = PHOTO_ANALYSIS_PROMPT;
     if (conversationContext) {
-      prompt += `\n\nConversation so far:\n${conversationContext}\n\nGiven this context, focus your analysis on what's most relevant to the user's concerns.`;
+      // W-S7: Limit conversation context length to mitigate prompt injection surface
+      const MAX_CONTEXT_LENGTH = 5000;
+      const trimmedContext =
+        typeof conversationContext === 'string'
+          ? conversationContext.slice(0, MAX_CONTEXT_LENGTH)
+          : '';
+      if (trimmedContext) {
+        prompt += `\n\nConversation so far:\n${trimmedContext}\n\nGiven this context, focus your analysis on what's most relevant to the user's concerns.`;
+      }
     }
 
     const response = await ai.models.generateContent({
@@ -80,11 +88,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, analysis });
   } catch (error) {
     console.error('[analyze-photo] Error:', error);
+    // W-S8: Only expose detailed error messages in development
+    const message =
+      process.env.NODE_ENV === 'development' && error instanceof Error
+        ? error.message
+        : 'Photo analysis failed';
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : 'Photo analysis failed',
-      },
+      { success: false, error: message },
       { status: 500 }
     );
   }

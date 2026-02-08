@@ -86,20 +86,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
         {/* Action buttons */}
         <div className="px-6 py-8 bg-gradient-to-t from-stone-950 via-stone-950/80 to-transparent" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
-          <style>{`
-            @keyframes button-slide-up {
-              from {
-                opacity: 0;
-                transform: translateY(12px);
-              }
-              to {
-                opacity: 1;
-                transform: translateY(0);
-              }
-            }
-            .button-retake { animation: button-slide-up 0.4s ease-out 0.1s both; }
-            .button-analyze { animation: button-slide-up 0.4s ease-out 0.2s both; }
-          `}</style>
+          {/* button-retake and button-analyze animations are in globals.css */}
           <div className="flex gap-4 justify-center">
             {/* Retake button */}
             <button
@@ -253,19 +240,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
       {isActive && stream && (
         <div className="absolute bottom-0 left-0 right-0 px-6 py-8 flex justify-center items-center bg-gradient-to-t from-black/90 via-black/50 to-transparent" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
           <div className="flex items-center gap-8">
-            <style>{`
-              @keyframes pulse-glow {
-                0%, 100% {
-                  box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
-                }
-                50% {
-                  box-shadow: 0 0 0 12px rgba(34, 197, 94, 0);
-                }
-              }
-              .capture-pulse {
-                animation: pulse-glow 2s infinite;
-              }
-            `}</style>
+            {/* capture-pulse animation is in globals.css */}
             {/* Cancel - subtle side button */}
             <button
               onClick={onCancel}
@@ -308,7 +283,7 @@ export function CameraCapture({ onCapture, onCancel }: CameraCaptureProps) {
 
           {/* Voice hint */}
           <div className="absolute bottom-full mb-4 text-center">
-            <p className="text-xs text-stone-500 font-light">Tap to capture or say &quot;take photo&quot;</p>
+            <p className="text-xs text-stone-400 font-light">Tap to capture or say &quot;take photo&quot;</p>
           </div>
         </div>
       )}
