@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./globals.css";
 
 export const viewport: Viewport = {
@@ -29,6 +30,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased bg-stone-900">
         {children}
+        <Script src="https://accounts.google.com/gsi/client" strategy="lazyOnload" />
       </body>
     </html>
   );
