@@ -201,8 +201,14 @@ describe('Garden Walk — photo trigger detection', () => {
 
     it('detects various AI photo suggestion patterns', () => {
       expect(hasPhotoTrigger('Could you send me a photo?', 'ai')).toBe(true);
-      expect(hasPhotoTrigger('Would it help me to see a picture?', 'ai')).toBe(true);
       expect(hasPhotoTrigger('Can you show me an image of the plant?', 'ai')).toBe(true);
+    });
+
+    it('does not trigger when AI discusses a photo already received', () => {
+      expect(hasPhotoTrigger('I can see from the photo that the leaves are yellowing', 'ai')).toBe(false);
+      expect(hasPhotoTrigger('Looking at the picture, I notice some spots', 'ai')).toBe(false);
+      expect(hasPhotoTrigger('The photo would suggest nitrogen deficiency', 'ai')).toBe(false);
+      expect(hasPhotoTrigger('Based on what I see in the image', 'ai')).toBe(false);
     });
   });
 

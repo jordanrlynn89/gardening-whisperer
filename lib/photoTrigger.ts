@@ -6,21 +6,28 @@
 export function hasPhotoTrigger(text: string, source: 'ai' | 'user'): boolean {
   const lower = text.toLowerCase();
   if (source === 'ai') {
-    // AI suggesting user send a photo: match any mention of photo/picture
-    // combined with action verbs the AI would use
+    // AI explicitly asking the USER to take/send/show a photo.
+    // Must match a direct request — NOT Gemini discussing a photo already received
+    // (e.g. "I can see from the photo..." must NOT trigger this).
     const hasPhotoWord = lower.includes('photo') || lower.includes('picture') || lower.includes('image');
-    const hasSuggestVerb =
-      lower.includes('show') ||
-      lower.includes('send') ||
-      lower.includes('take') ||
-      lower.includes('see') ||
-      lower.includes('like to') ||
-      lower.includes('want to') ||
-      lower.includes('help me') ||
-      lower.includes('would') ||
-      lower.includes('can you') ||
-      lower.includes('could you');
-    return hasPhotoWord && hasSuggestVerb;
+    const hasExplicitRequest =
+      lower.includes('show me') ||
+      lower.includes('can you show') ||
+      lower.includes('could you show') ||
+      lower.includes('can you take') ||
+      lower.includes('could you take') ||
+      lower.includes('take a photo') ||
+      lower.includes('take a picture') ||
+      lower.includes('send me') ||
+      lower.includes('would you like to show') ||
+      lower.includes('would you like to take') ||
+      lower.includes('would help me') ||
+      lower.includes('would really help') ||
+      lower.includes('if you can show') ||
+      lower.includes('if you could show') ||
+      lower.includes('love to see') ||
+      lower.includes('love to look');
+    return hasPhotoWord && hasExplicitRequest;
   }
   // User offering to send a photo
   const hasPhotoWord = lower.includes('photo') || lower.includes('picture') || lower.includes('image');
