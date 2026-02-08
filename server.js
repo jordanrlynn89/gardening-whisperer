@@ -68,7 +68,8 @@ app.prepare().then(() => {
         host === '127.0.0.1' ||
         host === getLanIp() ||
         host.endsWith('.share.zrok.io') ||
-        host.endsWith('.ngrok-free.dev')
+        host.endsWith('.ngrok-free.dev') ||
+        host.endsWith('.up.railway.app')
       ) {
         return true;
       }
