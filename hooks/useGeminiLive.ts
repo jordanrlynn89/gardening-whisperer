@@ -252,7 +252,6 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
       console.log('[useGeminiLive] Requesting mic access...');
       const micPromise = navigator.mediaDevices.getUserMedia({
         audio: {
-          sampleRate: SAMPLE_RATE,
           channelCount: 1,
           echoCancellation: true,
           noiseSuppression: true,
