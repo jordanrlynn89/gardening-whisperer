@@ -9,6 +9,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Pixel system dark theme palette
+        pixel: {
+          bg: '#0F0F0F',
+          surface: '#1E1E1E',
+          'surface-bright': '#2E2E2E',
+          'on-surface': '#E3E3E3',
+          'on-surface-variant': '#A0A0A0',
+        },
         // Earthy/organic color palette for gardening theme
         earth: {
           50: '#f6f5f0',
@@ -47,6 +55,13 @@ const config: Config = {
           800: '#92400e',
           900: '#78350f',
         },
+      },
+      borderRadius: {
+        'pixel': '24px',
+        'pill': '999px',
+      },
+      fontFamily: {
+        'pixel': ['Inter', 'Google Sans', 'system-ui', 'sans-serif'],
       },
     },
   },

@@ -15,201 +15,95 @@ function getStageIndex(stage: JourneyStage): number {
   return STAGES.indexOf(stage);
 }
 
-// Garden Archway Icon
-function ArchwayIcon({ active }: { active: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="48"
-      height="48"
-      viewBox="0 0 48 48"
-      fill="none"
-      stroke={active ? '#22c55e' : '#57534e'}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`transition-all duration-500 ${active ? 'drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]' : ''}`}
-    >
-      {/* Archway posts */}
-      <line x1="12" y1="44" x2="12" y2="16" />
-      <line x1="36" y1="44" x2="36" y2="16" />
-      {/* Arch */}
-      <path d="M12 16 Q24 4 36 16" />
-      {/* Decorative vines */}
-      <path d="M14 20 Q16 22 14 26" />
-      <path d="M34 20 Q32 22 34 26" />
-      {/* Small leaves */}
-      <circle cx="15" cy="24" r="2" />
-      <circle cx="33" cy="24" r="2" />
-    </svg>
-  );
-}
+// Quick Settings tile data
+const TILE_DATA: { stage: JourneyStage; label: string; icon: string }[] = [
+  { stage: 'start', label: 'Welcome', icon: 'gate' },
+  { stage: 'plant_id', label: 'Plant ID', icon: 'plant' },
+  { stage: 'symptoms', label: 'Symptoms', icon: 'symptoms' },
+  { stage: 'environment', label: 'Environment', icon: 'sun' },
+  { stage: 'care_history', label: 'Care', icon: 'water' },
+  { stage: 'complete', label: 'Diagnosis', icon: 'check' },
+];
 
-// Plant/Seedling Icon (leaf design)
-function PlantIcon({ visible, active }: { visible: boolean; active: boolean }) {
-  const leafColor = active ? '#22c55e' : '#57534e';
-  const accentColor = active ? '#16a34a' : '#52524f';
-
-  return (
-    <svg
-      aria-hidden="true"
-      width="40"
-      height="40"
-      viewBox="0 0 1000 500"
-      className={`transition-all duration-700 ${visible ? 'opacity-100 scale-100' : 'opacity-0 scale-50'} ${active ? 'drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]' : ''}`}
-    >
-      <g fill={leafColor}>
-        {/* Main leaf shape */}
-        <path d="M109.7 257.6s433.6 432.9 665.7 0c-217.3-467.1-665.7 0-665.7 0Z" />
-        {/* Leaf vein/accent */}
-        <path d="M890.1 254.4a6 6 0 0 0-7.4-3.9c-.4.1-37.8 11.2-106.5 2.3-249.7-32.5-438.6-8.9-440.5-8.6a5.8 5.8 0 0 0-5.1 6.7 6 6 0 0 0 6.7 5.2c1.9-.2 189.4-23.7 437.4 8.6a407 407 0 0 0 53.2 3.6c37.3 0 57.2-6 58.3-6.3a6 6 0 0 0 3.9-7.4Z" fill={accentColor} />
-      </g>
-    </svg>
-  );
-}
-
-// Symptoms Icon (spotted/wilting leaf)
-function SymptomsIcon({ visible, active }: { visible: boolean; active: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="40"
-      height="40"
-      viewBox="0 0 40 40"
-      fill="none"
-      stroke={active ? '#22c55e' : '#57534e'}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`transition-all duration-700 ${visible ? 'opacity-100 scale-100' : 'opacity-0 scale-50'} ${active ? 'drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]' : ''}`}
-    >
-      {/* Leaf outline */}
-      <path d="M8 32 Q4 20 12 8 Q20 4 28 8 Q36 16 32 28 Q24 36 8 32" />
-      {/* Leaf vein */}
-      <path d="M12 28 Q20 20 26 10" />
-      {/* Spots (symptoms) */}
-      <circle cx="16" cy="18" r="2" fill={active ? '#22c55e' : '#57534e'} />
-      <circle cx="24" cy="22" r="2" fill={active ? '#22c55e' : '#57534e'} />
-      <circle cx="18" cy="26" r="1.5" fill={active ? '#22c55e' : '#57534e'} />
-    </svg>
-  );
-}
-
-// Environment Icon (sun with rays)
-function EnvironmentIcon({ visible, active }: { visible: boolean; active: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="40"
-      height="40"
-      viewBox="0 0 40 40"
-      fill="none"
-      stroke={active ? '#22c55e' : '#57534e'}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`transition-all duration-700 ${visible ? 'opacity-100 scale-100' : 'opacity-0 scale-50'} ${active ? 'drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]' : ''}`}
-    >
-      {/* Sun circle */}
-      <circle cx="20" cy="20" r="8" />
-      {/* Rays */}
-      <line x1="20" y1="4" x2="20" y2="8" />
-      <line x1="20" y1="32" x2="20" y2="36" />
-      <line x1="4" y1="20" x2="8" y2="20" />
-      <line x1="32" y1="20" x2="36" y2="20" />
-      {/* Diagonal rays */}
-      <line x1="8.5" y1="8.5" x2="11.3" y2="11.3" />
-      <line x1="28.7" y1="28.7" x2="31.5" y2="31.5" />
-      <line x1="31.5" y1="8.5" x2="28.7" y2="11.3" />
-      <line x1="11.3" y1="28.7" x2="8.5" y2="31.5" />
-    </svg>
-  );
-}
-
-// Care History Icon (watering can)
-function CareIcon({ visible, active }: { visible: boolean; active: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="40"
-      height="40"
-      viewBox="0 0 40 40"
-      fill="none"
-      stroke={active ? '#22c55e' : '#57534e'}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`transition-all duration-700 ${visible ? 'opacity-100 scale-100' : 'opacity-0 scale-50'} ${active ? 'drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]' : ''}`}
-    >
-      {/* Can body */}
-      <path d="M8 18 L8 32 L28 32 L28 18 Z" />
-      {/* Spout */}
-      <path d="M28 22 L36 16 L38 18" />
-      {/* Handle */}
-      <path d="M10 18 Q10 10 18 10 L18 18" />
-      {/* Water drops */}
-      <line x1="34" y1="22" x2="34" y2="26" />
-      <line x1="36" y1="24" x2="36" y2="28" />
-    </svg>
-  );
-}
-
-// Diagnosis Gate Icon
-function DiagnosisIcon({ visible, active }: { visible: boolean; active: boolean }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="48"
-      height="48"
-      viewBox="0 0 48 48"
-      fill="none"
-      stroke={active ? '#22c55e' : '#57534e'}
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`transition-all duration-700 ${visible ? 'opacity-100 scale-100' : 'opacity-0 scale-50'} ${active ? 'drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]' : ''}`}
-    >
-      {/* Card/clipboard outline */}
-      <rect x="10" y="6" width="28" height="36" rx="3" />
-      {/* Clipboard clip */}
-      <path d="M18 6 L18 4 Q24 2 30 4 L30 6" />
-      {/* Checkmark */}
-      <path d="M16 24 L22 30 L32 18" strokeWidth="3" />
-      {/* Lines for text */}
-      <line x1="16" y1="36" x2="32" y2="36" />
-    </svg>
-  );
-}
-
-// Footsteps animation between stages
-function Footsteps({ animate }: { animate: boolean }) {
-  return (
-    <div className="flex flex-col items-center gap-1 h-8 sm:h-12 justify-center">
-      {[0, 1, 2].map((i) => (
-        <div
-          key={i}
-          className={`w-2 h-2 rounded-full bg-stone-600 transition-all duration-300 ${
-            animate ? 'animate-pulse' : ''
-          }`}
-          style={{
-            animationDelay: animate ? `${i * 150}ms` : '0ms',
-            opacity: animate ? 1 : 0.3,
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-// Stage labels
-const STAGE_LABELS: Record<JourneyStage, string> = {
-  start: 'Welcome to the Garden',
-  plant_id: 'What plant do you have?',
-  symptoms: 'What symptoms do you see?',
-  environment: 'Tell me about its environment',
-  care_history: 'How have you been caring for it?',
-  complete: 'Diagnosis Ready',
+// Stage labels for the At-a-Glance hero text
+const STAGE_LABELS: Record<JourneyStage, { title: string; subtitle: string }> = {
+  start: { title: 'Welcome', subtitle: 'Starting your garden walk' },
+  plant_id: { title: 'Plant\nIdentification', subtitle: 'Tell me about your plant' },
+  symptoms: { title: 'Symptom\nAssessment', subtitle: 'What symptoms do you see?' },
+  environment: { title: 'Environment\nReview', subtitle: 'Tell me about its environment' },
+  care_history: { title: 'Care\nHistory', subtitle: 'How have you been caring for it?' },
+  complete: { title: 'Diagnosis\nReady', subtitle: 'Wrapping up your garden walk' },
 };
+
+function TileIcon({ type, active }: { type: string; active: boolean }) {
+  const color = active ? '#22c55e' : '#78716c';
+
+  switch (type) {
+    case 'gate':
+      return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 22V8" />
+          <path d="M18 22V8" />
+          <path d="M6 8Q12 2 18 8" />
+          <circle cx="8" cy="12" r="1" fill={color} />
+          <circle cx="16" cy="12" r="1" fill={color} />
+        </svg>
+      );
+    case 'plant':
+      return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 22V12" />
+          <path d="M12 16Q8 14 6 8Q10 9 12 16" />
+          <path d="M12 12Q16 8 18 3Q14 5 12 12" />
+          <path d="M7 22Q12 20 17 22" />
+        </svg>
+      );
+    case 'symptoms':
+      return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 18Q3 12 7 5Q12 3 17 5Q21 10 19 16Q14 20 5 18" />
+          <path d="M8 16Q12 12 16 7" />
+          <circle cx="10" cy="11" r="1.5" fill={color} />
+          <circle cx="15" cy="13" r="1.5" fill={color} />
+        </svg>
+      );
+    case 'sun':
+      return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round">
+          <circle cx="12" cy="12" r="4" />
+          <line x1="12" y1="2" x2="12" y2="4" />
+          <line x1="12" y1="20" x2="12" y2="22" />
+          <line x1="2" y1="12" x2="4" y2="12" />
+          <line x1="20" y1="12" x2="22" y2="12" />
+          <line x1="4.9" y1="4.9" x2="6.3" y2="6.3" />
+          <line x1="17.7" y1="17.7" x2="19.1" y2="19.1" />
+          <line x1="19.1" y1="4.9" x2="17.7" y2="6.3" />
+          <line x1="6.3" y1="17.7" x2="4.9" y2="19.1" />
+        </svg>
+      );
+    case 'water':
+      return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 10V18H16V10Z" />
+          <path d="M16 12L20 9L21 10" />
+          <path d="M6 10Q6 5 10 5V10" />
+          <line x1="19" y1="12" x2="19" y2="15" />
+          <line x1="20" y1="13" x2="20" y2="16" />
+        </svg>
+      );
+    case 'check':
+      return (
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="6" y="3" width="12" height="18" rx="2" />
+          <path d="M10 3V2Q12 1 14 2V3" />
+          <path d="M9 12L11 14L15 10" strokeWidth="2" />
+          <line x1="9" y1="18" x2="15" y2="18" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
 
 export function GardenJourney({ currentStage, isWalking }: GardenJourneyProps) {
   const [animatedStage, setAnimatedStage] = useState(currentStage);
@@ -218,7 +112,6 @@ export function GardenJourney({ currentStage, isWalking }: GardenJourneyProps) {
   // Smooth stage transitions
   useEffect(() => {
     if (isWalking) {
-      // Delay updating animated stage until walking animation completes
       const timer = setTimeout(() => {
         setAnimatedStage(currentStage);
       }, 600);
@@ -229,106 +122,72 @@ export function GardenJourney({ currentStage, isWalking }: GardenJourneyProps) {
   }, [currentStage, isWalking]);
 
   const animatedIndex = getStageIndex(animatedStage);
+  const stageInfo = STAGE_LABELS[animatedStage];
 
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full px-6 relative">
-      {/* Decorative vine paths (left and right) */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <svg className="absolute left-0 top-0 w-12 h-full" viewBox="0 0 48 600" preserveAspectRatio="none">
-          <path
-            d="M24 0 Q10 50 24 100 Q38 150 24 200 Q10 250 24 300 Q38 350 24 400 Q10 450 24 500 Q38 550 24 600"
-            stroke="url(#vineGradient)"
-            strokeWidth="1"
-            fill="none"
-            opacity="0.15"
-            strokeDasharray="4 4"
-          />
-          <defs>
-            <linearGradient id="vineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#22c55e" stopOpacity="0.3" />
-              <stop offset="50%" stopColor="#22c55e" stopOpacity="0.1" />
-              <stop offset="100%" stopColor="#22c55e" stopOpacity="0.3" />
-            </linearGradient>
-          </defs>
-        </svg>
-        <svg className="absolute right-0 top-0 w-12 h-full" viewBox="0 0 48 600" preserveAspectRatio="none">
-          <path
-            d="M24 0 Q38 50 24 100 Q10 150 24 200 Q38 250 24 300 Q10 350 24 400 Q38 450 24 500 Q10 550 24 600"
-            stroke="url(#vineGradient2)"
-            strokeWidth="1"
-            fill="none"
-            opacity="0.15"
-            strokeDasharray="4 4"
-          />
-          <defs>
-            <linearGradient id="vineGradient2" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#22c55e" stopOpacity="0.3" />
-              <stop offset="50%" stopColor="#22c55e" stopOpacity="0.1" />
-              <stop offset="100%" stopColor="#22c55e" stopOpacity="0.3" />
-            </linearGradient>
-          </defs>
-        </svg>
-      </div>
-
-      {/* Journey Path */}
-      <div className="flex flex-col items-center gap-1 sm:gap-2 py-4 sm:py-8 mt-12 relative z-10">
-        {/* Start: Archway */}
-        <div className="flex flex-col items-center">
-          <ArchwayIcon active={animatedIndex === 0} />
-          {animatedIndex === 0 && (
-            <span className="text-xs text-stone-400 mt-2 animate-pulse">Enter</span>
-          )}
-        </div>
-
-        <Footsteps animate={isWalking && currentIndex === 1} />
-
-        {/* Stage 1: Plant ID */}
-        <div className="flex flex-col items-center">
-          <PlantIcon
-            visible={animatedIndex >= 1}
-            active={animatedIndex === 1}
-          />
-        </div>
-
-        <Footsteps animate={isWalking && currentIndex === 2} />
-
-        {/* Stage 2: Symptoms */}
-        <div className="flex flex-col items-center">
-          <SymptomsIcon visible={animatedIndex >= 2} active={animatedIndex === 2} />
-        </div>
-
-        <Footsteps animate={isWalking && currentIndex === 3} />
-
-        {/* Stage 3: Environment */}
-        <div className="flex flex-col items-center">
-          <EnvironmentIcon visible={animatedIndex >= 3} active={animatedIndex === 3} />
-        </div>
-
-        <Footsteps animate={isWalking && currentIndex === 4} />
-
-        {/* Stage 4: Care History */}
-        <div className="flex flex-col items-center">
-          <CareIcon visible={animatedIndex >= 4} active={animatedIndex === 4} />
-        </div>
-
-        <Footsteps animate={isWalking && currentIndex === 5} />
-
-        {/* End: Diagnosis */}
-        <div className="flex flex-col items-center">
-          <DiagnosisIcon visible={animatedIndex >= 5} active={animatedIndex === 5} />
-        </div>
-      </div>
-
-      {/* Current Stage Label */}
-      <div className="mt-1 text-center">
-        <p className="text-sm text-stone-300 tracking-wide uppercase font-semibold">
-          {STAGE_LABELS[animatedStage]}
+    <div className="flex flex-col items-center w-full px-4 relative">
+      {/* At-a-Glance Hero Text */}
+      <div className="text-center mb-8 hero-crossfade" key={animatedStage}>
+        <h2 className="text-[44px] leading-[1.1] tracking-tight text-pixel-on-surface whitespace-pre-line">
+          {stageInfo.title.split('\n').map((line, i) => (
+            <span key={i}>
+              {i === 0 ? (
+                <span className="font-light">{line}</span>
+              ) : (
+                <span className="font-bold">{line}</span>
+              )}
+              {i < stageInfo.title.split('\n').length - 1 && <br />}
+            </span>
+          ))}
+        </h2>
+        <p className="text-[13px] text-pixel-on-surface-variant mt-3 font-normal">
+          {stageInfo.subtitle}
         </p>
-        {isWalking && (
-          <p className="text-xs text-green-500 mt-1 animate-pulse font-light">
-            Walking...
-          </p>
-        )}
+      </div>
+
+      {/* Quick Settings Grid - 3x2 */}
+      <div className="grid grid-cols-3 gap-3 w-full max-w-sm">
+        {TILE_DATA.map((tile, i) => {
+          const tileIndex = getStageIndex(tile.stage);
+          const isComplete = tileIndex < animatedIndex;
+          const isActive = tileIndex === animatedIndex;
+          const isPending = tileIndex > animatedIndex;
+
+          return (
+            <div
+              key={tile.stage}
+              className={`
+                flex flex-col items-center justify-center gap-2 py-4 px-2 rounded-pixel transition-all duration-500
+                ${isComplete
+                  ? 'bg-garden-900/50 tile-complete'
+                  : isActive
+                    ? 'bg-pixel-surface-bright ring-1 ring-garden-500/30'
+                    : 'bg-pixel-surface'
+                }
+              `}
+            >
+              <div className={`transition-all duration-500 ${isPending ? 'opacity-40' : 'opacity-100'}`}>
+                <TileIcon type={tile.icon} active={isComplete || isActive} />
+              </div>
+              <span className={`text-[11px] font-medium uppercase tracking-wider transition-colors duration-500 ${
+                isComplete
+                  ? 'text-garden-500'
+                  : isActive
+                    ? 'text-pixel-on-surface'
+                    : 'text-pixel-on-surface-variant/50'
+              }`}>
+                {tile.label}
+              </span>
+              {/* Completion indicator */}
+              {isComplete && (
+                <div className="w-1.5 h-1.5 rounded-full bg-garden-500" />
+              )}
+              {isActive && isWalking && (
+                <div className="w-1.5 h-1.5 rounded-full bg-garden-400 animate-pulse" />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
