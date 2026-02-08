@@ -18,15 +18,25 @@ const GardenJourney = dynamic(
   () => import('./GardenJourney').then(mod => ({ default: mod.GardenJourney })),
   { ssr: false }
 );
-const PhotoChooser = dynamic(() => import('./PhotoChooser'), { ssr: false });
 const CameraCapture = dynamic(
   () => import('./CameraCapture').then(mod => ({ default: mod.CameraCapture })),
   { ssr: false }
 );
-const PhotoLibrary = dynamic(() => import('./PhotoLibrary'), { ssr: false });
 
 type AppState = 'idle' | 'connecting' | 'active' | 'summary' | 'error';
-type PhotoState = 'none' | 'choosing_source' | 'capturing_camera' | 'selecting_library' | 'processing';
+type PhotoState = 'none' | 'capturing_camera' | 'processing';
+
+function matchesCaptureCommand(text: string): boolean {
+  return (
+    text.includes('take photo') || text.includes('take a photo') ||
+    text.includes('take the photo') || text.includes('capture photo') ||
+    text.includes('capture the photo') || text.includes('snap') ||
+    text.includes('take picture') || text.includes('take a picture') ||
+    text.includes('take the picture') || text.includes('this is the plant') ||
+    text.includes('this is my plant') || text.includes('here is the plant') ||
+    text.includes('here is my plant')
+  );
+}
 
 // SummaryData type and business logic functions are now in lib/ modules:
 // - lib/plantExtraction.ts
@@ -48,6 +58,9 @@ export function VoiceLoop() {
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const prevStageRef = useRef<JourneyStage>('start');
+  const capturePhotoRef = useRef<(() => void) | null>(null);
+  const captureTriggeredLenRef = useRef<number>(0);
+  const photoCooldownUntilRef = useRef<number>(0);
 
   const { isConnected: isCalendarConnected, accessToken: calendarToken, isGISReady, signIn: calendarSignIn, signOut: calendarSignOut } = useGoogleCalendar();
 
@@ -60,6 +73,7 @@ export function VoiceLoop() {
     connect,
     disconnect,
     sendText,
+    suppressOutput,
     pauseMic,
     resumeMic,
     isConnected,
@@ -140,13 +154,14 @@ export function VoiceLoop() {
 
     for (const msg of newMessages) {
       const source = msg.role === 'assistant' ? 'ai' : 'user';
-      if (hasPhotoTrigger(msg.content, source) && photoState === 'none') {
+      if (hasPhotoTrigger(msg.content, source) && photoState === 'none' && Date.now() > photoCooldownUntilRef.current) {
         console.log('[VoiceLoop] Photo trigger detected in completed message:', msg.content.slice(0, 80));
         if (source === 'ai' && isSpeaking) {
-          // AI is still speaking — defer showing the modal until audio finishes
+          // AI is still speaking — defer showing camera until audio finishes
           pendingPhotoTriggerRef.current = true;
         } else {
-          setPhotoState('choosing_source');
+          pendingPhotoTriggerRef.current = false;
+          setPhotoState('capturing_camera');
           speakPhotoPrompt();
         }
         break;
@@ -156,17 +171,17 @@ export function VoiceLoop() {
 
   // Show photo UI once AI finishes speaking (deferred from above)
   useEffect(() => {
-    if (!isSpeaking && pendingPhotoTriggerRef.current && photoState === 'none') {
+    if (!isSpeaking && pendingPhotoTriggerRef.current && photoState === 'none' && Date.now() > photoCooldownUntilRef.current) {
       pendingPhotoTriggerRef.current = false;
-      console.log('[VoiceLoop] AI finished speaking — showing photo chooser');
-      setPhotoState('choosing_source');
+      console.log('[VoiceLoop] AI finished speaking — showing camera');
+      setPhotoState('capturing_camera');
       speakPhotoPrompt();
     }
   }, [isSpeaking, photoState, speakPhotoPrompt]);
 
   // Also detect from streaming AI transcripts (faster response)
   useEffect(() => {
-    if (!aiTranscript || photoState !== 'none') return;
+    if (!aiTranscript || photoState !== 'none' || Date.now() <= photoCooldownUntilRef.current) return;
     if (hasPhotoTrigger(aiTranscript, 'ai')) {
       // Mark pending — the completed messages effect or the isSpeaking watcher will fire it
       pendingPhotoTriggerRef.current = true;
@@ -174,26 +189,62 @@ export function VoiceLoop() {
   }, [aiTranscript, photoState]);
 
   useEffect(() => {
-    if (!userTranscript || photoState !== 'none') return;
+    if (!userTranscript || photoState !== 'none' || Date.now() <= photoCooldownUntilRef.current) return;
     if (hasPhotoTrigger(userTranscript, 'user')) {
-      setPhotoState('choosing_source');
+      pendingPhotoTriggerRef.current = false;
+      setPhotoState('capturing_camera');
       speakPhotoPrompt();
     }
   }, [userTranscript, photoState, speakPhotoPrompt]);
 
-  // Pause mic when actively using camera/library so AI waits.
-  // Keep mic on during 'choosing_source' so user can verbally decline.
+  // Manage mic and output suppression during photo flow.
+  // Suppress Gemini output as soon as camera opens so it can't fabricate
+  // a response while the user is framing/capturing the photo.
+  // Mic stays on so "take photo" voice command works.
   useEffect(() => {
-    if (photoState === 'capturing_camera' || photoState === 'selecting_library' || photoState === 'processing') {
+    if (photoState === 'capturing_camera') {
+      suppressOutput(true);
+      // mic stays on for voice commands
+    } else if (photoState === 'processing') {
       pauseMic();
+      // suppressOutput already true from capturing_camera; server lifts on sendText
     } else {
       resumeMic();
+      // Reset voice command detection position when leaving camera state
+      captureTriggeredLenRef.current = 0;
     }
-  }, [photoState, pauseMic, resumeMic]);
+  }, [photoState, pauseMic, resumeMic, suppressOutput]);
 
-  // Detect verbal photo decline while chooser is showing
+  // Voice command: "take photo" / "capture" / "snap" triggers capture
   useEffect(() => {
-    if (photoState !== 'choosing_source' || !userTranscript) return;
+    if (photoState !== 'capturing_camera' || !userTranscript) return;
+    // Only check text we haven't checked yet (userTranscript only grows until reset on turn_complete)
+    const newText = userTranscript.slice(captureTriggeredLenRef.current).toLowerCase();
+    if (!newText) return;
+
+    if (matchesCaptureCommand(newText)) {
+      captureTriggeredLenRef.current = userTranscript.length;
+      pendingPhotoTriggerRef.current = false;
+      console.log('[VoiceLoop] Voice capture command detected');
+      if (capturePhotoRef.current) {
+        capturePhotoRef.current();
+      } else {
+        // Camera still loading — capture as soon as it's ready
+        console.log('[VoiceLoop] Camera not ready yet, queuing capture');
+        const poll = setInterval(() => {
+          if (capturePhotoRef.current) {
+            clearInterval(poll);
+            capturePhotoRef.current();
+          }
+        }, 200);
+        setTimeout(() => clearInterval(poll), 5000);
+      }
+    }
+  }, [userTranscript, photoState]);
+
+  // Detect verbal photo decline while camera is showing
+  useEffect(() => {
+    if (photoState !== 'capturing_camera' || !userTranscript) return;
     const lower = userTranscript.toLowerCase();
     if (
       lower.includes("don't want") ||
@@ -320,19 +371,19 @@ export function VoiceLoop() {
     setCurrentStage('start');
   };
 
-  const handleCameraSelect = () => {
-    setPhotoState('capturing_camera');
-  };
-
-  const handleLibrarySelect = () => {
-    setPhotoState('selecting_library');
-  };
-
   const handlePhotoCapture = useCallback(
     async (imageData: string) => {
       console.log('[VoiceLoop] Photo captured, size:', imageData?.length || 0);
 
+      if (!imageData) {
+        console.warn('[VoiceLoop] Capture returned empty — closing camera');
+        setPhotoState('none');
+        return;
+      }
+
       setPhotoState('processing');
+      // suppressOutput(true) was already sent when camera opened;
+      // server will auto-lift it when the photo analysis text arrives via sendText.
 
       // Build conversation context for Gemini 3
       const backup = messagesRef.current ?? [];
@@ -362,12 +413,15 @@ export function VoiceLoop() {
         sendText('I tried to analyze the photo but had trouble. Can you describe what you see instead?');
       }
 
+      // 15s cooldown so the AI's response about the photo doesn't re-trigger camera
+      photoCooldownUntilRef.current = Date.now() + 15000;
       setPhotoState('none');
     },
     [sendText, messages, messagesRef]
   );
 
   const handlePhotoCancel = () => {
+    suppressOutput(false);
     setPhotoState('none');
   };
 
@@ -466,13 +520,13 @@ export function VoiceLoop() {
           </div>
 
           {/* Photo UI States */}
-          {photoState === 'choosing_source' && (
-            <PhotoChooser onCameraSelect={handleCameraSelect} onLibrarySelect={handleLibrarySelect} onCancel={handlePhotoCancel} />
+          {photoState === 'capturing_camera' && (
+            <CameraCapture
+              onCapture={handlePhotoCapture}
+              onCancel={handlePhotoCancel}
+              onCaptureReady={(fn) => { capturePhotoRef.current = fn; }}
+            />
           )}
-
-          {photoState === 'capturing_camera' && <CameraCapture onCapture={handlePhotoCapture} onCancel={handlePhotoCancel} />}
-
-          {photoState === 'selecting_library' && <PhotoLibrary onSelect={handlePhotoCapture} onCancel={handlePhotoCancel} onError={(msg) => console.error('[PhotoLibrary]', msg)} />}
 
           {photoState === 'processing' && (
             <div

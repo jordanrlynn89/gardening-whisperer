@@ -41,7 +41,16 @@ IMPORTANT RULES:
 - Only move to the next stage after you've gathered enough info for the current one.
 - Keep the conversation natural and flowing, like a knowledgeable gardener friend
 - Each response should be short (1-3 sentences) since this is voice conversation
-- Always end with a clear wrap-up containing "happy gardening" so the user knows the walk is over`;
+- Always end with a clear wrap-up containing "happy gardening" so the user knows the walk is over
+
+CRITICAL — HONESTY ABOUT VISUAL INFORMATION:
+- You CANNOT see anything unless you receive a message starting with "[Photo analysis]"
+- NEVER describe, guess, or imply what a plant looks like unless the user has told you specifically
+- NEVER say things like "I can see the yellowing" or "those spots look like..." unless you have received a [Photo analysis] message
+- If the user takes a photo, wait silently. You will receive the analysis as "[Photo analysis] ..." — only THEN describe what you see
+- When you receive "[Photo analysis] ...", do NOT read or say the words "photo analysis" aloud. Simply use the visual information naturally in your response (e.g. "I can see your tomato plant has yellowing leaves...")
+- If the photo analysis says it couldn't identify the plant or the image was unclear, be honest: "I couldn't make out the details clearly from the photo"
+- Base ALL visual descriptions strictly on the [Photo analysis] text or exactly what the user has told you. Do not add details not mentioned in it`;
 
 class GeminiLiveProxy {
   constructor(clientWs) {
@@ -49,6 +58,7 @@ class GeminiLiveProxy {
     this.session = null;
     this.isConnected = false;
     this._accumulatedAiText = '';
+    this._suppressOutput = false;
   }
 
   async connect() {
@@ -134,13 +144,28 @@ class GeminiLiveProxy {
         // starts with '{'
         const msg = JSON.parse(data.toString());
 
+        if (msg.type === 'suppress_output') {
+          this._suppressOutput = !!msg.enabled;
+          console.log(`[GeminiLive] Output suppression: ${this._suppressOutput}`);
+          return;
+        }
+
         if (msg.type === 'text') {
           // Text message (e.g., injected photo analysis from Gemini 3)
+          // Lift suppression so the response to the photo is heard
+          this._suppressOutput = false;
+          console.log('[GeminiLive] Output suppression: false (text message received)');
+          // Reformat photo analysis so Gemini understands context without reading prefix aloud
+          let text = msg.text;
+          if (text.startsWith('[Photo analysis]')) {
+            text = text.replace('[Photo analysis] ',
+              'Here is what was observed in the photo the user just showed you: ');
+          }
           this.session.sendClientContent({
             turns: [
               {
                 role: 'user',
-                parts: [{ text: msg.text }],
+                parts: [{ text }],
               },
             ],
             turnComplete: true,
@@ -176,6 +201,27 @@ class GeminiLiveProxy {
 
     if (msg.serverContent) {
       const content = msg.serverContent;
+
+      // During photo flow, suppress ALL Gemini output except input_transcript
+      // (needed for voice commands like "take photo") and interrupted.
+      // Don't accumulate AI text either — prevents false "happy gardening" detection.
+      if (this._suppressOutput) {
+        if (content.inputTranscription?.text) {
+          if (VERBOSE) console.log('[GeminiLive] [suppressed] User said:', content.inputTranscription.text);
+          this._sendToClient({
+            type: 'input_transcript',
+            text: content.inputTranscription.text,
+          });
+        }
+        if (content.interrupted) {
+          console.log('[GeminiLive] [suppressed] Turn interrupted by user');
+          this._sendToClient({ type: 'interrupted' });
+        }
+        if (content.turnComplete) {
+          console.log('[GeminiLive] [suppressed] Turn complete (not forwarded)');
+        }
+        return;
+      }
 
       // Input transcription (what the user said)
       if (content.inputTranscription?.text) {
