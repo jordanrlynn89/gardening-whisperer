@@ -119,10 +119,10 @@ export function VoiceLoop() {
     onWalkComplete: () => {
       console.log('[VoiceLoop] 🌟 Walk complete signal received from server');
       setWalkCompleted(true);
+      stopAmbient(); // start fade immediately so it finishes before summary appears
       setTimeout(() => {
         console.log('[VoiceLoop] Transitioning to summary now');
         disconnect();
-        stopAmbient();
         setAppState('summary');
         setVolume(0);
       }, 2000);
@@ -350,8 +350,8 @@ export function VoiceLoop() {
   };
 
   const handleEnd = () => {
-    disconnect();
     stopAmbient();
+    disconnect();
     setAppState('summary');
     setVolume(0);
   };
