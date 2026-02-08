@@ -1,6 +1,6 @@
 const { createServer: createHttpServer } = require('http');
 const { createServer: createHttpsServer } = require('https');
-const { parse } = require('url');
+// WHATWG URL used instead of deprecated url.parse()
 const next = require('next');
 const fs = require('fs');
 const path = require('path');
@@ -33,7 +33,8 @@ const handle = app.getRequestHandler();
 app.prepare().then(() => {
   const requestHandler = async (req, res) => {
     try {
-      const parsedUrl = parse(req.url, true);
+      const reqUrl = new URL(req.url, `http://${req.headers.host}`);
+      const parsedUrl = { pathname: reqUrl.pathname, query: Object.fromEntries(reqUrl.searchParams) };
       await handle(req, res, parsedUrl);
     } catch (err) {
       console.error('Error occurred handling', req.url, err);
@@ -53,12 +54,49 @@ app.prepare().then(() => {
     : createHttpServer(requestHandler);
 
   // WebSocket server for Gemini Live API proxy
-  const wss = new WebSocketServer({ noServer: true });
+  const MAX_WS_CONNECTIONS = 5;
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1048576 });
+
+  // Origin validation: only allow local, LAN, and known tunnel origins
+  function isAllowedOrigin(origin) {
+    if (!origin) return true; // Allow connections with no Origin header (e.g., server-to-server)
+    try {
+      const url = new URL(origin);
+      const host = url.hostname;
+      if (
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === getLanIp() ||
+        host.endsWith('.share.zrok.io') ||
+        host.endsWith('.ngrok-free.dev')
+      ) {
+        return true;
+      }
+    } catch {
+      // Malformed origin
+    }
+    return false;
+  }
 
   server.on('upgrade', (request, socket, head) => {
-    const { pathname } = parse(request.url, true);
+    const { pathname } = new URL(request.url, `http://${request.headers.host}`);
 
     if (pathname === '/ws/gemini-live') {
+      // W-S3: Origin validation
+      const origin = request.headers.origin;
+      if (!isAllowedOrigin(origin)) {
+        console.warn(`[WS] Rejected connection from disallowed origin: ${origin}`);
+        socket.destroy();
+        return;
+      }
+
+      // W-S5: Connection rate limiting
+      if (wss.clients.size >= MAX_WS_CONNECTIONS) {
+        console.warn(`[WS] Rejected connection: max connections (${MAX_WS_CONNECTIONS}) reached`);
+        socket.destroy();
+        return;
+      }
+
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, request);
       });

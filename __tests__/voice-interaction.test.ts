@@ -1,317 +1,591 @@
 /**
- * Tests for Voice Interaction Flow
- * Covers Web Speech API, audio playback, and conversation turns
+ * Tests for the ACTIVE voice system: useGeminiLive hook
+ *
+ * Covers WebSocket lifecycle, message handling, audio state,
+ * error handling, and cleanup.
  */
 
-// Mock Web Speech API
-const mockSpeechRecognitionInstance = {
-  start: jest.fn(),
-  stop: jest.fn(),
-  abort: jest.fn(),
-  onstart: null,
-  onend: null,
-  onerror: null,
-  onresult: null,
-  continuous: false,
-  interimResults: false,
-  language: 'en-US',
+import { renderHook, act, waitFor } from '@testing-library/react';
+import { TextEncoder, TextDecoder } from 'util';
+import { useGeminiLive } from '../hooks/useGeminiLive';
+
+// Polyfill TextEncoder/TextDecoder for jsdom
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder as typeof global.TextDecoder;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+// Capture the latest WebSocket instance created inside the hook
+let latestWs: MockWebSocket;
+
+class MockWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
+  CONNECTING = 0;
+  OPEN = 1;
+  CLOSING = 2;
+  CLOSED = 3;
+
+  readyState = MockWebSocket.CONNECTING;
+  binaryType = '';
+  send = jest.fn();
+  close = jest.fn(() => {
+    this.readyState = MockWebSocket.CLOSED;
+    if (this.onclose) this.onclose({ code: 1000, reason: '' } as CloseEvent);
+  });
+  onopen: ((ev: Event) => void) | null = null;
+  onclose: ((ev: CloseEvent) => void) | null = null;
+  onmessage: ((ev: MessageEvent) => void) | null = null;
+  onerror: ((ev: Event) => void) | null = null;
+
+  constructor() {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    latestWs = this;
+  }
+
+  /** Simulate server opening the connection */
+  simulateOpen() {
+    this.readyState = MockWebSocket.OPEN;
+    if (this.onopen) this.onopen(new Event('open'));
+  }
+
+  /** Simulate receiving a JSON text frame */
+  simulateMessage(data: Record<string, unknown>) {
+    if (this.onmessage) {
+      this.onmessage({ data: JSON.stringify(data) } as MessageEvent);
+    }
+  }
+
+  /** Simulate receiving binary audio data */
+  simulateBinaryMessage(buffer: ArrayBuffer) {
+    if (this.onmessage) {
+      this.onmessage({ data: buffer } as MessageEvent);
+    }
+  }
+
+  /** Simulate a connection error */
+  simulateError() {
+    if (this.onerror) this.onerror(new Event('error'));
+  }
+
+  /** Simulate server closing the connection */
+  simulateClose(code = 1006, reason = '') {
+    this.readyState = MockWebSocket.CLOSED;
+    if (this.onclose) {
+      this.onclose({ code, reason } as unknown as CloseEvent);
+    }
+  }
+}
+
+// ── Global mocks ─────────────────────────────────────────────────────────────
+
+global.WebSocket = MockWebSocket as unknown as typeof WebSocket;
+
+// Blob + URL mocks for AudioWorklet module URL
+global.URL.createObjectURL = jest.fn(() => 'blob:mock-url');
+global.URL.revokeObjectURL = jest.fn();
+global.Blob = jest.fn(() => ({ size: 0, type: 'application/javascript' })) as unknown as typeof Blob;
+
+// AudioContext mock
+class MockAudioContext {
+  sampleRate = 16000;
+  state = 'running';
+  destination = {};
+  createBuffer = jest.fn(() => ({
+    getChannelData: jest.fn(() => new Float32Array(1024)),
+  }));
+  createBufferSource = jest.fn(() => ({
+    buffer: null,
+    connect: jest.fn(),
+    start: jest.fn(),
+    stop: jest.fn(),
+    onended: null as (() => void) | null,
+  }));
+  createMediaStreamSource = jest.fn(() => ({
+    connect: jest.fn(),
+    disconnect: jest.fn(),
+  }));
+  createGain = jest.fn(() => ({
+    connect: jest.fn(),
+    gain: { value: 1 },
+  }));
+  createScriptProcessor = jest.fn(() => ({
+    connect: jest.fn(),
+    disconnect: jest.fn(),
+    onaudioprocess: null,
+  }));
+  audioWorklet = {
+    addModule: jest.fn(() => Promise.resolve()),
+  };
+  close = jest.fn(() => Promise.resolve());
+  resume = jest.fn(() => Promise.resolve());
+}
+
+global.AudioContext = MockAudioContext as unknown as typeof AudioContext;
+
+// AudioWorkletNode mock
+global.AudioWorkletNode = jest.fn(() => ({
+  disconnect: jest.fn(),
+  connect: jest.fn(),
+  port: { onmessage: null },
+})) as unknown as typeof AudioWorkletNode;
+
+// getUserMedia mock
+const mockMediaStream = {
+  getTracks: jest.fn(() => [{ stop: jest.fn() }]),
 };
+Object.defineProperty(global.navigator, 'mediaDevices', {
+  value: { getUserMedia: jest.fn(async () => mockMediaStream) },
+  writable: true,
+  configurable: true,
+});
 
-const mockSpeechRecognition = jest.fn(() => mockSpeechRecognitionInstance);
+// ── Helper: connect the hook so it reaches connected state ───────────────────
 
-global.SpeechRecognition = mockSpeechRecognition as any;
-global.webkitSpeechRecognition = mockSpeechRecognition as any;
+async function connectHook() {
+  const result = renderHook(() => useGeminiLive());
+  let connectPromise: Promise<void>;
 
-// Mock ElevenLabs TTS
-global.fetch = jest.fn();
+  act(() => {
+    connectPromise = result.result.current.connect();
+  });
 
-describe('Voice Interaction Flow', () => {
+  // Wait a tick for the Promise.all to begin, then open the WebSocket
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    latestWs.simulateOpen();
+  });
+
+  // Let the hook settle
+  await act(async () => {
+    await connectPromise!.catch(() => {});
+  });
+
+  return { ...result, ws: latestWs };
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+describe('useGeminiLive — WebSocket connection lifecycle', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('Speech Recognition (STT)', () => {
-    it('should initialize Web Speech API', () => {
-      const recognition = new (global.SpeechRecognition as any)();
+  it('starts disconnected with no errors', () => {
+    const { result } = renderHook(() => useGeminiLive());
 
-      expect(recognition).toBeDefined();
-      expect(recognition.start).toBeDefined();
-      expect(recognition.stop).toBeDefined();
-    });
-
-    it('should start listening on user interaction', () => {
-      const recognition = new (global.SpeechRecognition as any)();
-
-      recognition.start();
-
-      expect(recognition.start).toHaveBeenCalled();
-    });
-
-    it('should set language to English', () => {
-      const recognition = new (global.SpeechRecognition as any)();
-      recognition.language = 'en-US';
-
-      expect(recognition.language).toBe('en-US');
-    });
-
-    it('should capture final transcript', () => {
-      const recognition = new (global.SpeechRecognition as any)();
-
-      const mockEvent = {
-        results: [
-          [
-            {
-              transcript: 'My plant has yellow leaves',
-              isFinal: true,
-            },
-          ],
-        ],
-      };
-
-      const transcript = mockEvent.results[0][0].transcript;
-      expect(transcript).toBe('My plant has yellow leaves');
-    });
-
-    it('should ignore interim results until final', () => {
-      const transcript1 = 'My';
-      const isFinal1 = false;
-
-      const transcript2 = 'My plant';
-      const isFinal2 = false;
-
-      const transcript3 = 'My plant has yellow leaves';
-      const isFinal3 = true;
-
-      expect(isFinal1).toBe(false);
-      expect(isFinal2).toBe(false);
-      expect(isFinal3).toBe(true);
-      expect(transcript3).toBe('My plant has yellow leaves');
-    });
-
-    it('should handle silence timeout', () => {
-      // After 2-3 seconds of silence, should trigger soft prompt
-      const silenceTimeout = 3000;
-
-      expect(silenceTimeout).toBeGreaterThan(0);
-    });
-
-    it('should handle recognition errors', () => {
-      const errors = [
-        'no-speech',
-        'audio-capture',
-        'network',
-        'permission-denied',
-      ];
-
-      expect(errors).toContain('no-speech');
-      expect(errors).toContain('permission-denied');
-    });
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.isListening).toBe(false);
+    expect(result.current.isSpeaking).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(result.current.messages).toEqual([]);
   });
 
-  describe('AI Response via ElevenLabs TTS', () => {
-    it('should send text to ElevenLabs API', async () => {
-      const text = 'Your plant needs more water';
-      const voiceId = 'default-voice';
+  it('transitions to connected after connect() + WebSocket open', async () => {
+    const { result, ws } = await connectHook();
 
-      const payload = {
-        text,
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-        },
-      };
-
-      expect(payload.text).toBe(text);
-      expect(payload.voice_settings).toBeDefined();
-    });
-
-    it('should receive audio bytes from TTS', async () => {
-      // ElevenLabs returns audio/mpeg bytes
-      const audioBuffer = new ArrayBuffer(4096);
-
-      expect(audioBuffer.byteLength).toBe(4096);
-    });
-
-    it('should play audio response', () => {
-      const mockAudio = {
-        play: jest.fn(),
-        pause: jest.fn(),
-        currentTime: 0,
-      };
-
-      mockAudio.play();
-
-      expect(mockAudio.play).toHaveBeenCalled();
-    });
-
-    it('should handle audio playback completion', () => {
-      const onEnded = jest.fn();
-
-      // When audio ends, callback should fire
-      onEnded();
-
-      expect(onEnded).toHaveBeenCalled();
-    });
+    expect(result.current.isConnected).toBe(true);
+    expect(result.current.isListening).toBe(true);
+    expect(ws.binaryType).toBe('arraybuffer');
   });
 
-  describe('Conversation Turn Management', () => {
-    it('should implement turn-taking pattern', () => {
-      const turns = [
-        { speaker: 'user', content: 'My tomato plant has spots' },
-        { speaker: 'ai', content: 'Those spots could be blight...' },
-        { speaker: 'user', content: 'What should I do?' },
-        { speaker: 'ai', content: 'Remove affected leaves and...' },
-      ];
+  it('transitions to disconnected after disconnect()', async () => {
+    const { result } = await connectHook();
 
-      expect(turns.length).toBe(4);
-      expect(turns[0].speaker).toBe('user');
-      expect(turns[1].speaker).toBe('ai');
+    act(() => {
+      result.current.disconnect();
     });
 
-    it('should not interrupt AI response', () => {
-      const aiSpeaking = true;
-      const userCanInterrupt = false;
-
-      expect(aiSpeaking).toBe(true);
-      expect(userCanInterrupt).toBe(false);
-    });
-
-    it('should listen after AI finishes speaking', () => {
-      const onAISpeakingEnd = jest.fn();
-
-      // Simulate AI finishing
-      onAISpeakingEnd();
-
-      expect(onAISpeakingEnd).toHaveBeenCalled();
-    });
-
-    it('should show visual feedback during recording', () => {
-      const isListening = true;
-
-      expect(isListening).toBe(true);
-    });
-
-    it('should show visual feedback during AI response', () => {
-      const isSpeaking = true;
-
-      expect(isSpeaking).toBe(true);
-    });
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.isListening).toBe(false);
   });
 
-  describe('Audio Quality & Performance', () => {
-    it('should capture audio at high quality', () => {
-      // Request 24kHz or higher
-      const sampleRate = 24000;
+  it('calls onConnected callback when connection succeeds', async () => {
+    const onConnected = jest.fn();
+    const { result } = renderHook(() => useGeminiLive({ onConnected }));
 
-      expect(sampleRate).toBeGreaterThanOrEqual(16000);
+    let connectPromise: Promise<void>;
+    act(() => {
+      connectPromise = result.current.connect();
     });
 
-    it('should apply echo cancellation', () => {
-      const audioConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      };
-
-      expect(audioConstraints.echoCancellation).toBe(true);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+      latestWs.simulateOpen();
     });
 
-    it('should handle mono audio input', () => {
-      const channelCount = 1;
-
-      expect(channelCount).toBe(1);
+    await act(async () => {
+      await connectPromise!.catch(() => {});
     });
 
-    it('should buffer audio for smooth playback', () => {
-      const audioQueue = [];
+    expect(onConnected).toHaveBeenCalled();
+  });
+});
 
-      audioQueue.push(new Float32Array(2048));
-      audioQueue.push(new Float32Array(2048));
-
-      expect(audioQueue.length).toBe(2);
-    });
+describe('useGeminiLive — message handling', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
 
-  describe('Error Recovery', () => {
-    it('should recover from microphone permission denied', () => {
-      const error = 'permission-denied';
+  it('handles setup_complete message', async () => {
+    const onConnected = jest.fn();
+    const { result, ws } = await connectHook();
 
-      // Should show user message and retry option
-      expect(error).toBe('permission-denied');
+    act(() => {
+      ws.simulateMessage({ type: 'setup_complete', sessionId: 'test-session' });
     });
 
-    it('should handle network disconnection during response', () => {
-      const isConnected = false;
-
-      // Should queue user input and retry
-      expect(isConnected).toBe(false);
-    });
-
-    it('should timeout if no response from AI', () => {
-      const timeout = 30000; // 30 seconds
-
-      expect(timeout).toBeGreaterThan(0);
-    });
-
-    it('should show helpful error messages', () => {
-      const errors = {
-        'no-speech': 'I did not hear anything. Please try again.',
-        'network': 'Connection lost. Please check your internet.',
-        'audio-capture': 'Could not access microphone. Check permissions.',
-      };
-
-      expect(errors['no-speech']).toContain('hear');
-      expect(errors['network']).toContain('Connection');
-    });
+    // setup_complete also calls setIsConnected(true) + onConnected
+    expect(result.current.isConnected).toBe(true);
+    expect(result.current.isListening).toBe(true);
   });
 
-  describe('Garden Walk Conversation Pattern', () => {
-    it('should follow structured interview pattern', () => {
-      const stages = [
-        'plant_id',
-        'symptoms',
-        'environment',
-        'care_history',
-        'diagnosis',
-      ];
+  it('accumulates input_transcript into userTranscript', async () => {
+    const { result, ws } = await connectHook();
 
-      expect(stages[0]).toBe('plant_id');
-      expect(stages[stages.length - 1]).toBe('diagnosis');
+    act(() => {
+      ws.simulateMessage({ type: 'input_transcript', text: 'Hello ' });
+    });
+    expect(result.current.userTranscript).toBe('Hello ');
+
+    act(() => {
+      ws.simulateMessage({ type: 'input_transcript', text: 'world' });
+    });
+    expect(result.current.userTranscript).toBe('Hello world');
+  });
+
+  it('accumulates output_transcript into aiTranscript', async () => {
+    const { result, ws } = await connectHook();
+
+    act(() => {
+      ws.simulateMessage({ type: 'output_transcript', text: 'I see ' });
+    });
+    expect(result.current.aiTranscript).toBe('I see ');
+
+    act(() => {
+      ws.simulateMessage({ type: 'output_transcript', text: 'yellow leaves' });
+    });
+    expect(result.current.aiTranscript).toBe('I see yellow leaves');
+  });
+
+  it('commits transcripts to messages on turn_complete', async () => {
+    const { result, ws } = await connectHook();
+
+    act(() => {
+      ws.simulateMessage({ type: 'input_transcript', text: 'My plant is sick' });
+      ws.simulateMessage({ type: 'output_transcript', text: 'Tell me more' });
+      ws.simulateMessage({ type: 'turn_complete' });
     });
 
-    it('should track conversation coverage', () => {
-      const coverage = {
-        plant_id: true,
-        symptoms: false,
-        environment: false,
-        care_history: false,
-      };
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]).toEqual({ role: 'user', content: 'My plant is sick' });
+    expect(result.current.messages[1]).toEqual({ role: 'assistant', content: 'Tell me more' });
+    // Transcripts should be reset after turn_complete
+    expect(result.current.userTranscript).toBe('');
+    expect(result.current.aiTranscript).toBe('');
+  });
 
-      const coveredTopics = Object.keys(coverage).filter((k) => coverage[k]);
+  it('handles interrupted message by committing partial transcripts', async () => {
+    const { result, ws } = await connectHook();
 
-      expect(coveredTopics).toContain('plant_id');
-      expect(coveredTopics.length).toBe(1);
+    act(() => {
+      ws.simulateMessage({ type: 'input_transcript', text: 'Wait' });
+      ws.simulateMessage({ type: 'output_transcript', text: 'Sure, I was going to' });
+      ws.simulateMessage({ type: 'interrupted' });
     });
 
-    it('should adapt based on user responses', () => {
-      // If user mentions overwatering, ask about drainage
-      const userInput = 'I water it every day';
-      const shouldAskAboutDrainage = userInput.includes('water');
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[0]).toEqual({ role: 'user', content: 'Wait' });
+    expect(result.current.messages[1]).toEqual({ role: 'assistant', content: 'Sure, I was going to' });
+    expect(result.current.isSpeaking).toBe(false);
+    expect(result.current.isListening).toBe(true);
+  });
 
-      expect(shouldAskAboutDrainage).toBe(true);
+  it('handles error message from server', async () => {
+    const onError = jest.fn();
+    const { result } = renderHook(() => useGeminiLive({ onError }));
+
+    let connectPromise: Promise<void>;
+    act(() => {
+      connectPromise = result.current.connect();
     });
 
-    it('should wrap up when sufficient information gathered', () => {
-      const coverage = {
-        plant_id: true,
-        symptoms: true,
-        environment: true,
-        care_history: true,
-      };
-
-      const allCovered = Object.values(coverage).every((v) => v === true);
-
-      expect(allCovered).toBe(true);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+      latestWs.simulateOpen();
     });
+    await act(async () => {
+      await connectPromise!.catch(() => {});
+    });
+
+    act(() => {
+      latestWs.simulateMessage({ type: 'error', message: 'API quota exceeded' });
+    });
+
+    expect(result.current.error).toBe('API quota exceeded');
+    expect(onError).toHaveBeenCalledWith('API quota exceeded');
+  });
+
+  it('handles walk_complete message', async () => {
+    const onWalkComplete = jest.fn();
+    const { result } = renderHook(() => useGeminiLive({ onWalkComplete }));
+
+    let connectPromise: Promise<void>;
+    act(() => {
+      connectPromise = result.current.connect();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+      latestWs.simulateOpen();
+    });
+    await act(async () => {
+      await connectPromise!.catch(() => {});
+    });
+
+    act(() => {
+      latestWs.simulateMessage({ type: 'walk_complete' });
+    });
+
+    expect(onWalkComplete).toHaveBeenCalled();
+  });
+
+  it('handles closed message from server', async () => {
+    const { result, ws } = await connectHook();
+
+    act(() => {
+      ws.simulateMessage({ type: 'closed' });
+    });
+
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.isListening).toBe(false);
+  });
+
+  it('handles binary audio data by enqueuing for playback', async () => {
+    const onSpeakingStart = jest.fn();
+    const { result } = renderHook(() => useGeminiLive({ onSpeakingStart }));
+
+    let connectPromise: Promise<void>;
+    act(() => {
+      connectPromise = result.current.connect();
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+      latestWs.simulateOpen();
+    });
+    await act(async () => {
+      await connectPromise!.catch(() => {});
+    });
+
+    // Send binary audio — 16-bit PCM samples
+    const pcmData = new Int16Array([100, -200, 300]).buffer;
+    act(() => {
+      latestWs.simulateBinaryMessage(pcmData);
+    });
+
+    expect(result.current.isSpeaking).toBe(true);
+    expect(onSpeakingStart).toHaveBeenCalled();
+  });
+
+  it('parses JSON delivered as binary (zrok/ngrok proxy behavior)', async () => {
+    const { result, ws } = await connectHook();
+
+    // Build a jsdom-native ArrayBuffer from JSON string bytes.
+    // We cannot use TextEncoder from Node's util module because jsdom has its
+    // own ArrayBuffer class, and Node's ArrayBuffer fails instanceof checks.
+    const jsonStr = JSON.stringify({ type: 'input_transcript', text: 'proxy test' });
+    const bytes = new Uint8Array(jsonStr.length);
+    for (let i = 0; i < jsonStr.length; i++) bytes[i] = jsonStr.charCodeAt(i);
+
+    act(() => {
+      ws.simulateBinaryMessage(bytes.buffer);
+    });
+
+    expect(result.current.userTranscript).toBe('proxy test');
+  });
+});
+
+describe('useGeminiLive — audio state management', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('isSpeaking is false initially', () => {
+    const { result } = renderHook(() => useGeminiLive());
+    expect(result.current.isSpeaking).toBe(false);
+  });
+
+  it('isListening becomes true after connection', async () => {
+    const { result } = await connectHook();
+    expect(result.current.isListening).toBe(true);
+  });
+
+  it('pauseMic sets isListening to false', async () => {
+    const { result } = await connectHook();
+
+    act(() => {
+      result.current.pauseMic();
+    });
+
+    expect(result.current.isListening).toBe(false);
+  });
+
+  it('resumeMic restores isListening when connected', async () => {
+    const { result } = await connectHook();
+
+    act(() => {
+      result.current.pauseMic();
+    });
+    expect(result.current.isListening).toBe(false);
+
+    act(() => {
+      result.current.resumeMic();
+    });
+    expect(result.current.isListening).toBe(true);
+  });
+});
+
+describe('useGeminiLive — error handling', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('sets error on WebSocket connection failure', async () => {
+    const onError = jest.fn();
+    const { result } = renderHook(() => useGeminiLive({ onError }));
+
+    let connectPromise: Promise<void>;
+    act(() => {
+      connectPromise = result.current.connect();
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+      latestWs.simulateError();
+    });
+
+    // The connect promise should reject
+    await act(async () => {
+      await connectPromise!.catch(() => {});
+    });
+
+    expect(result.current.error).toBeTruthy();
+    expect(onError).toHaveBeenCalled();
+  });
+
+  it('sets error on unexpected WebSocket close', async () => {
+    const onError = jest.fn();
+    const { result } = renderHook(() => useGeminiLive({ onError }));
+
+    let connectPromise: Promise<void>;
+    act(() => {
+      connectPromise = result.current.connect();
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+      latestWs.simulateOpen();
+    });
+    await act(async () => {
+      await connectPromise!.catch(() => {});
+    });
+
+    // Simulate unexpected close (not code 1000)
+    act(() => {
+      latestWs.simulateClose(1006, 'abnormal closure');
+    });
+
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.error).toBeTruthy();
+    expect(onError).toHaveBeenCalled();
+  });
+
+  it('handles invalid JSON in text messages gracefully', async () => {
+    const { result, ws } = await connectHook();
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    act(() => {
+      if (ws.onmessage) {
+        ws.onmessage({ data: '{invalid json' } as MessageEvent);
+      }
+    });
+
+    // Should not crash, just log an error
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('useGeminiLive — sendText and sendImage', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('sendText sends a JSON text message over WebSocket', async () => {
+    const { result, ws } = await connectHook();
+
+    act(() => {
+      result.current.sendText('My tomato has yellow leaves');
+    });
+
+    expect(ws.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'text', text: 'My tomato has yellow leaves' })
+    );
+  });
+
+  it('sendText does nothing when not connected', () => {
+    const { result } = renderHook(() => useGeminiLive());
+
+    act(() => {
+      result.current.sendText('test');
+    });
+
+    // No WebSocket was created, so nothing should happen
+    // (the function should exit early without error)
+    expect(result.current.error).toBeNull();
+  });
+
+  it('sendImage sends base64 image data over WebSocket', async () => {
+    const { result, ws } = await connectHook();
+
+    act(() => {
+      result.current.sendImage('data:image/jpeg;base64,abc123', 'Look at this');
+    });
+
+    const sent = JSON.parse(ws.send.mock.calls[ws.send.mock.calls.length - 1][0]);
+    expect(sent.type).toBe('image');
+    expect(sent.imageData).toBe('abc123'); // prefix stripped
+    expect(sent.text).toBe('Look at this');
+  });
+
+  it('sendImage uses default text when none provided', async () => {
+    const { result, ws } = await connectHook();
+
+    act(() => {
+      result.current.sendImage('abc123');
+    });
+
+    const sent = JSON.parse(ws.send.mock.calls[ws.send.mock.calls.length - 1][0]);
+    expect(sent.text).toBe('Here is a photo of my plant. What do you see?');
+  });
+});
+
+describe('useGeminiLive — cleanup on unmount', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('cleans up resources when disconnect is called', async () => {
+    const { result } = await connectHook();
+
+    act(() => {
+      result.current.disconnect();
+    });
+
+    expect(result.current.isConnected).toBe(false);
+    expect(result.current.isListening).toBe(false);
+    expect(result.current.isSpeaking).toBe(false);
   });
 });

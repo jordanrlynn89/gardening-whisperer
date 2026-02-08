@@ -69,8 +69,8 @@ describe('GardenJourney', () => {
 
       // At complete stage, all icons should be visible (opacity-100)
       const svgs = container.querySelectorAll('svg');
-      // 6 icons: archway, plant, symptoms, environment, care, diagnosis
-      expect(svgs.length).toBe(6);
+      // 8 svgs: 6 stage icons + 2 decorative vine paths
+      expect(svgs.length).toBe(8);
     });
 
     it('should show Enter text only at start stage', () => {

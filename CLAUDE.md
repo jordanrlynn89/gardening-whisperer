@@ -24,7 +24,7 @@ Always provide ways to verify your work:
 
 ### Test-Driven Development (TDD)
 
-**Write tests before implementing features.** This is mandatory for all new functionality.
+**Write tests before implementing features. MANDATORY, no exceptions.** Every new feature, bug fix, and behavior change starts with a failing test.
 
 1. **Red**: Write a failing test that defines the expected behavior
 2. **Green**: Write the minimum code to make the test pass
@@ -56,6 +56,36 @@ npm test -- --watch   # Watch mode during development
 - Run `/clear` between unrelated tasks (e.g., after fixing a bug, before starting a new feature)
 - Use subagents for codebase exploration to avoid cluttering main context
 - Keep conversations focused on one feature/bug at a time
+
+### Git Workflow
+
+**Worktree-first development** — use git worktrees to work on features without stashing:
+```bash
+git worktree add ../gardening-whisperer-feature-X feature/X
+# work in the new directory, then clean up:
+git worktree remove ../gardening-whisperer-feature-X
+```
+
+**Branch naming:** `feature/`, `fix/`, `refactor/`, `chore/` prefixes (e.g., `feature/garden-walk-coverage`).
+
+**Push accountability:** After every push, poll CI status:
+```bash
+gh run list --limit 1
+gh run watch          # blocks until CI completes
+```
+Fix failures immediately before moving on. Never leave CI red.
+
+### Agent Teams
+
+Use subagents for parallelizable work:
+- **Debug Mode**: Spawn a subagent to investigate while you continue on the main task
+- **Large Refactoring**: Split multi-file changes across subagents by module
+- **Code Quality Audit**: Run lint, typecheck, and test in parallel subagents
+- **PR Review**: Use `/review-pr` command for structured review
+
+### Agent Autonomy
+
+Exhaust all available tools (file search, grep, web search, shell commands) before asking the user for manual steps. If you need information, search for it. If something fails, debug it. Only ask the user when you've genuinely hit a wall that requires human judgment or credentials.
 
 ## Technical Stack
 
@@ -90,6 +120,9 @@ npm start
 
 # Run linting
 npm run lint
+
+# Typecheck (no emit)
+npm run typecheck
 ```
 
 ## Environment Setup
@@ -194,6 +227,25 @@ The following are **explicitly out of scope** for MVP:
 **Test scenario:** Tomato plant with yellowing leaves
 **Video format:** Hybrid (real app screen recording + motion graphics)
 **Target:** Show voice interaction, garden walk flow, photo diagnosis, and summary/share feature
+
+## Troubleshooting Patterns
+
+- **WebSocket won't connect through zrok**: Ensure zrok targets `http://` (not `https://`). Check `npm run dev:full` output for the correct public URL. Verify `ws://localhost:3003/ws/gemini-live` is accessible locally first.
+- **TTS plays silence**: Check ElevenLabs API key in `.env.local`. Verify the audio context is in "running" state (not "suspended" — requires user gesture to resume).
+- **Tests hang indefinitely**: Look for unresolved promises or missing `jest.useFakeTimers()`. WebSocket mocks may need explicit `close` events.
+- **CI build fails with missing env vars**: The CI workflow uses dummy env vars. If a new env var is required at build time, add it to `.github/workflows/ci.yml`.
+- **Worktree cleanup**: `git worktree list` to see all worktrees. `git worktree remove <path>` to clean up. Don't delete worktree directories manually.
+
+## Claude Commands
+
+Available slash commands:
+- `/review-pr` — Structured PR review (diff, CI status, code quality)
+- `/debug <description>` — Systematic debugging with hypothesis testing
+
+## Development Guardrails
+
+- **No secrets in code**: All API keys via env vars (`.env.local`). Never hardcode keys, even for testing.
+- **No dead code**: Remove unused imports, functions, and variables before committing. Don't comment out code "for later."
 
 ---
 

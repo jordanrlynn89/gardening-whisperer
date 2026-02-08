@@ -46,7 +46,7 @@ describe('CameraCapture', () => {
   it('should display header with title', () => {
     render(<CameraCapture onCapture={mockOnCapture} onCancel={mockOnCancel} />);
 
-    expect(screen.getByText('Take a photo of your plant')).toBeInTheDocument();
+    expect(screen.getByText('Frame your plant')).toBeInTheDocument();
   });
 
   it('should show loading state while camera initializes', () => {
@@ -55,7 +55,7 @@ describe('CameraCapture', () => {
 
     render(<CameraCapture onCapture={mockOnCapture} onCancel={mockOnCancel} />);
 
-    expect(screen.getByText('Starting camera...')).toBeInTheDocument();
+    expect(screen.getByText('Activating camera...')).toBeInTheDocument();
   });
 
   it('should call startCamera on mount', () => {
@@ -128,10 +128,16 @@ describe('CameraCapture', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /capture/i }));
 
+    // Component enters review mode after capture
     await waitFor(() => {
       expect(mockCapturePhoto).toHaveBeenCalled();
-      expect(mockOnCapture).toHaveBeenCalledWith('data:image/jpeg;base64,testImageData');
+      expect(screen.getByText('Review')).toBeInTheDocument();
     });
+
+    // Click "Analyze" to confirm and trigger onCapture
+    fireEvent.click(screen.getByRole('button', { name: /confirm and analyze/i }));
+
+    expect(mockOnCapture).toHaveBeenCalledWith('data:image/jpeg;base64,testImageData');
   });
 
   it('should have video element with playsInline for iOS', () => {
@@ -161,8 +167,8 @@ describe('CameraCapture', () => {
     render(<CameraCapture onCapture={mockOnCapture} onCancel={mockOnCancel} />);
 
     const captureButton = screen.getByRole('button', { name: /capture/i });
-    // Check for w-20 h-20 classes (80px)
-    expect(captureButton.className).toMatch(/w-20/);
-    expect(captureButton.className).toMatch(/h-20/);
+    // Check for w-24 h-24 classes (96px)
+    expect(captureButton.className).toMatch(/w-24/);
+    expect(captureButton.className).toMatch(/h-24/);
   });
 });

@@ -6,6 +6,7 @@ interface UseGeminiLiveReturn {
   connect: () => Promise<void>;
   disconnect: () => void;
   sendImage: (imageData: string, text?: string) => void;
+  sendText: (text: string) => void;
   pauseMic: () => void;
   resumeMic: () => void;
   isConnected: boolean;
@@ -220,6 +221,15 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     currentUserTranscriptRef.current = '';
     currentAiTranscriptRef.current = '';
 
+    // Cancel any pending HMR cleanup timeout from a previous mount
+    if (wsRef.current) {
+      const prevTimeout = (wsRef.current as unknown as Record<string, unknown>)._hmrCleanupTimeout;
+      if (prevTimeout) {
+        clearTimeout(prevTimeout as ReturnType<typeof setTimeout>);
+        delete (wsRef.current as unknown as Record<string, unknown>)._hmrCleanupTimeout;
+      }
+    }
+
     // Mark connection as active so HMR cleanup doesn't kill it
     activeConnectionRef.current = true;
 
@@ -286,8 +296,16 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
         if (event.data instanceof ArrayBuffer) {
           const bytes = new Uint8Array(event.data);
           if (bytes.length > 0 && bytes[0] === 0x7b) {
-            // First byte is '{' — this is JSON delivered as binary, not audio
-            jsonStr = new TextDecoder().decode(event.data);
+            // First byte is '{' — might be JSON delivered as binary
+            const decoded = new TextDecoder().decode(event.data);
+            try {
+              JSON.parse(decoded); // validate before committing
+              jsonStr = decoded;
+            } catch {
+              // Not valid JSON despite starting with '{' — treat as audio
+              enqueueAudio(event.data);
+              return;
+            }
           } else {
             // Actual PCM audio data
             enqueueAudio(event.data);
@@ -523,10 +541,22 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     );
   }, []);
 
+  const sendText = useCallback((text: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    wsRef.current.send(
+      JSON.stringify({
+        type: 'text',
+        text,
+      })
+    );
+  }, []);
+
   return {
     connect,
     disconnect,
     sendImage,
+    sendText,
     pauseMic,
     resumeMic,
     isConnected,

@@ -7,7 +7,7 @@
 - ✅ `.env.local` is NOT tracked by git
 - ✅ API keys are server-side only (no `NEXT_PUBLIC_` prefix)
 - ✅ `.env.example` contains placeholder values only
-- ✅ Gemini API calls happen server-side via `/app/api/chat/route.ts`
+- ✅ Gemini API calls happen server-side via WebSocket proxy (`server/gemini-live-proxy.js`) and `/app/api/analyze-photo/route.ts`
 
 ### What's Safe to Commit
 - ✅ `.env.example` - Template with placeholders
@@ -37,8 +37,9 @@ NEXT_PUBLIC_API_KEY=xyz123  # ❌ DON'T DO THIS FOR SECRETS
 
 ### API Routes
 All sensitive operations happen server-side:
-- ✅ `/app/api/chat/route.ts` - Gemini API calls
-- ✅ `/app/api/tts/route.ts` - ElevenLabs calls (when added)
+- ✅ `/server/gemini-live-proxy.js` - Gemini Live API WebSocket proxy
+- ✅ `/app/api/analyze-photo/route.ts` - Gemini photo analysis
+- ✅ `/app/api/tts/route.ts` - TTS endpoint (fallback)
 
 Client never sees API keys.
 
