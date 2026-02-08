@@ -17,6 +17,7 @@ const mockSendText = jest.fn();
 const mockSendImage = jest.fn();
 const mockPauseMic = jest.fn();
 const mockResumeMic = jest.fn();
+const mockSuppressOutput = jest.fn();
 
 let geminiLiveState = {
   isConnected: false,
@@ -62,6 +63,7 @@ jest.mock('@/hooks/useGeminiLive', () => ({
       sendImage: mockSendImage,
       pauseMic: mockPauseMic,
       resumeMic: mockResumeMic,
+      suppressOutput: mockSuppressOutput,
       isConnected: geminiLiveState.isConnected,
       isListening: geminiLiveState.isListening,
       isSpeaking: geminiLiveState.isSpeaking,
@@ -81,6 +83,21 @@ jest.mock('@/hooks/useAmbientSound', () => ({
     duck: mockDuck,
     unduck: mockUnduck,
   }),
+}));
+
+const mockStartSpeechCommand = jest.fn();
+const mockStopSpeechCommand = jest.fn();
+let capturedSpeechOnTranscript: (text: string, isFinal: boolean) => void = () => {};
+
+jest.mock('@/hooks/useSpeechCommand', () => ({
+  useSpeechCommand: ({ onTranscript }: { onTranscript: (text: string, isFinal: boolean) => void }) => {
+    capturedSpeechOnTranscript = onTranscript;
+    return {
+      start: mockStartSpeechCommand,
+      stop: mockStopSpeechCommand,
+      isListening: false,
+    };
+  },
 }));
 
 jest.mock('@/hooks/useGoogleCalendar', () => ({
@@ -188,6 +205,13 @@ beforeAll(() => {
       getVoices: jest.fn().mockReturnValue([]),
     },
   });
+
+  // SpeechSynthesisUtterance
+  (globalThis as unknown as Record<string, unknown>).SpeechSynthesisUtterance = jest.fn().mockImplementation(() => ({
+    rate: 1.0,
+    pitch: 1.0,
+    volume: 1.0,
+  }));
 
   // clipboard
   Object.defineProperty(navigator, 'clipboard', {
@@ -845,6 +869,126 @@ describe('VoiceLoop', () => {
       // Now in active state
       expect(screen.queryByText('ENTERING THE GARDEN...')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'End garden walk' })).toBeInTheDocument();
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // 13. CAMERA SPEECH COMMAND FLOW
+  // ────────────────────────────────────────────────────────────────────────
+  describe('camera speech command flow', () => {
+    const { hasPhotoTrigger } = jest.requireMock('@/lib/photoTrigger');
+
+    beforeEach(() => {
+      hasPhotoTrigger.mockReturnValue(false);
+    });
+
+    async function renderInActiveWithPhotoTrigger() {
+      // Set up so photo trigger fires on the initial message set
+      geminiLiveState.isConnected = true;
+      geminiLiveState.isListening = true;
+      geminiLiveState.messages = [
+        { role: 'assistant', content: 'Can you show me your plant?' },
+      ];
+      // hasPhotoTrigger will return true for the AI message
+      hasPhotoTrigger.mockReturnValue(true);
+
+      render(<VoiceLoop />);
+
+      // Go to active state — messages effect fires and detects photo trigger
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
+      });
+      await act(async () => {
+        capturedGeminiOptions.onConnected?.();
+      });
+    }
+
+    it('calls pauseMic when camera opens via photo trigger', async () => {
+      await renderInActiveWithPhotoTrigger();
+
+      expect(mockPauseMic).toHaveBeenCalled();
+    });
+
+    it('calls suppressOutput(true) when camera opens via photo trigger', async () => {
+      await renderInActiveWithPhotoTrigger();
+
+      expect(mockSuppressOutput).toHaveBeenCalledWith(true);
+    });
+
+    it('calls startSpeechCommand when camera opens via photo trigger', async () => {
+      await renderInActiveWithPhotoTrigger();
+
+      expect(mockStartSpeechCommand).toHaveBeenCalled();
+    });
+
+    it('speech callback with "take photo" logs capture command', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      geminiLiveState.isConnected = true;
+      geminiLiveState.isListening = true;
+
+      render(<VoiceLoop />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
+      });
+      await act(async () => {
+        capturedGeminiOptions.onConnected?.();
+      });
+
+      // Simulate the onTranscript callback being called with "take photo"
+      act(() => {
+        capturedSpeechOnTranscript('take photo', true);
+      });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[VoiceLoop] Voice capture command detected via local speech'
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it('speech callback with "skip" logs photo decline', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      geminiLiveState.isConnected = true;
+      geminiLiveState.isListening = true;
+
+      render(<VoiceLoop />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
+      });
+      await act(async () => {
+        capturedGeminiOptions.onConnected?.();
+      });
+
+      // Simulate decline via speech callback
+      act(() => {
+        capturedSpeechOnTranscript('skip', true);
+      });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[VoiceLoop] User declined photo verbally via local speech'
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it('photo state none calls stopSpeechCommand and resumeMic on initial render', async () => {
+      geminiLiveState.isConnected = true;
+      geminiLiveState.isListening = true;
+
+      render(<VoiceLoop />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
+      });
+      await act(async () => {
+        capturedGeminiOptions.onConnected?.();
+      });
+
+      // photoState starts as 'none', so the else branch should fire
+      expect(mockStopSpeechCommand).toHaveBeenCalled();
+      expect(mockResumeMic).toHaveBeenCalled();
     });
   });
 });
