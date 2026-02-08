@@ -21,8 +21,8 @@ export function hasPhotoTrigger(text: string, source: 'ai' | 'user'): boolean {
       lower.includes('send me') ||
       lower.includes('would you like to show') ||
       lower.includes('would you like to take') ||
-      lower.includes('would help me') ||
-      lower.includes('would really help') ||
+      lower.includes('a picture would') ||
+      lower.includes('a photo would') ||
       lower.includes('if you can show') ||
       lower.includes('if you could show') ||
       lower.includes('love to see') ||

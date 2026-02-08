@@ -754,7 +754,8 @@ describe('VoiceLoop', () => {
       });
     }
 
-    it('calls calendarSignIn when calendar is not connected', async () => {
+    it('calls calendarSignIn when calendar is not connected but GIS is ready', async () => {
+      calendarState.isGISReady = true;
       await goToSummary();
 
       await act(async () => {

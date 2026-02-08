@@ -44,8 +44,15 @@ describe('useAmbientSound', () => {
     expect(result.current.unduck).toBeDefined();
   });
 
-  it('should create Audio on mount for preloading', () => {
-    renderHook(() => useAmbientSound());
+  it('should lazily create Audio on first startAmbient call', () => {
+    const { result } = renderHook(() => useAmbientSound());
+
+    // Audio is NOT created on mount (lazy loading)
+    expect(global.Audio).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.startAmbient();
+    });
 
     expect(global.Audio).toHaveBeenCalledTimes(1);
     expect(global.Audio).toHaveBeenCalledWith('/sounds/birds-loop.mp3');
@@ -312,15 +319,15 @@ describe('useAmbientSound', () => {
       expect(mockAudioInstances[0].play).toHaveBeenCalled();
     });
 
-    it('should not set onerror when using direct audio source', () => {
+    it('should set onerror for logging when audio fails to load', () => {
       const { result } = renderHook(() => useAmbientSound());
 
       act(() => {
         result.current.startAmbient();
       });
 
-      // No fallback mechanism — onerror is not set
-      expect(mockAudioInstances[0].onerror).toBeNull();
+      // onerror is set for logging failures
+      expect(mockAudioInstances[0].onerror).toBeInstanceOf(Function);
     });
   });
 

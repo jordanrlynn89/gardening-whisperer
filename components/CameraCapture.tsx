@@ -13,6 +13,7 @@ export function CameraCapture({ onCapture, onCancel, onCaptureReady }: CameraCap
   const videoRef = useRef<HTMLVideoElement>(null);
   const { isActive, stream, error, startCamera, stopCamera, capturePhoto } = useCamera();
   const [isCapturing, setIsCapturing] = useState(false);
+  const [captureError, setCaptureError] = useState(false);
   const isCapturingRef = useRef(false);
 
   // Start camera on mount
@@ -41,9 +42,13 @@ export function CameraCapture({ onCapture, onCancel, onCaptureReady }: CameraCap
     const imageData = await capturePhoto(videoRef.current);
     isCapturingRef.current = false;
     setIsCapturing(false);
-    // Always call onCapture — even on failure — so the camera always closes.
-    // handlePhotoCapture in VoiceLoop handles empty imageData gracefully.
-    onCapture(imageData ?? '');
+    if (!imageData) {
+      // Camera still loading or failed — stay open, let user try again
+      setCaptureError(true);
+      setTimeout(() => setCaptureError(false), 2000);
+      return;
+    }
+    onCapture(imageData);
   }, [capturePhoto, onCapture]);
 
   // Expose capture fn to parent for voice commands
@@ -161,7 +166,7 @@ export function CameraCapture({ onCapture, onCancel, onCaptureReady }: CameraCap
               </div>
             </div>
 
-            {/* Capturing overlay — shown immediately after voice or button trigger */}
+            {/* Capturing overlay */}
             {isCapturing && (
               <div className="absolute inset-0 bg-stone-950/80 flex flex-col items-center justify-center z-20">
                 <svg className="w-10 h-10 text-emerald-400 animate-spin mb-3" fill="none" viewBox="0 0 24 24">
@@ -169,6 +174,13 @@ export function CameraCapture({ onCapture, onCancel, onCaptureReady }: CameraCap
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
                 <p className="text-stone-200 text-sm font-light">Capturing...</p>
+              </div>
+            )}
+
+            {/* Capture error — camera not ready, retry */}
+            {captureError && (
+              <div className="absolute bottom-32 left-0 right-0 flex justify-center z-20">
+                <p className="text-amber-300 text-sm font-light bg-stone-900/80 px-4 py-2 rounded-full">Camera still loading — try again</p>
               </div>
             )}
           </>
