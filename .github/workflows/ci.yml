@@ -20,6 +20,10 @@ jobs:
 
       - run: npm ci
 
+      - name: Security audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
       - name: Lint
         run: npm run lint
 
@@ -35,3 +39,4 @@ jobs:
           GEMINI_API_KEY: dummy
           ELEVENLABS_API_KEY: dummy
           GOOGLE_CLOUD_API_KEY: dummy
+          DEEPGRAM_API_KEY: dummy_deepgram_key

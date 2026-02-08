@@ -221,6 +221,15 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     currentUserTranscriptRef.current = '';
     currentAiTranscriptRef.current = '';
 
+    // Cancel any pending HMR cleanup timeout from a previous mount
+    if (wsRef.current) {
+      const prevTimeout = (wsRef.current as unknown as Record<string, unknown>)._hmrCleanupTimeout;
+      if (prevTimeout) {
+        clearTimeout(prevTimeout as ReturnType<typeof setTimeout>);
+        delete (wsRef.current as unknown as Record<string, unknown>)._hmrCleanupTimeout;
+      }
+    }
+
     // Mark connection as active so HMR cleanup doesn't kill it
     activeConnectionRef.current = true;
 

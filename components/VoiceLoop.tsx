@@ -5,435 +5,35 @@ import { useGeminiLive } from '@/hooks/useGeminiLive';
 import { useAmbientSound } from '@/hooks/useAmbientSound';
 import { useGoogleCalendar } from '@/hooks/useGoogleCalendar';
 import { formatCalendarEvent, createCalendarEvent } from '@/lib/googleCalendar';
+import { detectStageFromMessages, STAGE_ORDER } from '@/lib/stageDetection';
+import { generateSummaryData } from '@/lib/summaryGeneration';
+import { getBackgroundGradient } from '@/lib/backgroundGradient';
+import { hasPhotoTrigger } from '@/lib/photoTrigger';
 import { Visualizer } from './Visualizer';
-import { GardenJourney, JourneyStage } from './GardenJourney';
-import PhotoChooser from './PhotoChooser';
-import { CameraCapture } from './CameraCapture';
-import PhotoLibrary from './PhotoLibrary';
+import type { JourneyStage } from './GardenJourney';
+import dynamic from 'next/dynamic';
+
+// Code-split conditional components — only loaded when their UI state is active
+const GardenJourney = dynamic(
+  () => import('./GardenJourney').then(mod => ({ default: mod.GardenJourney })),
+  { ssr: false }
+);
+const PhotoChooser = dynamic(() => import('./PhotoChooser'), { ssr: false });
+const CameraCapture = dynamic(
+  () => import('./CameraCapture').then(mod => ({ default: mod.CameraCapture })),
+  { ssr: false }
+);
+const PhotoLibrary = dynamic(() => import('./PhotoLibrary'), { ssr: false });
 
 type AppState = 'idle' | 'connecting' | 'active' | 'summary' | 'error';
 type PhotoState = 'none' | 'choosing_source' | 'capturing_camera' | 'selecting_library' | 'processing';
 
-interface SummaryData {
-  plantName: string;
-  plantIdentified: string;
-  symptomsNoted: string;
-  environmentReviewed: string;
-  careHistoryDiscussed: string;
-  diagnosisGiven: string;
-  careRecommendations: {
-    light: string;
-    lightDetail: string;
-    water: string;
-    waterDetail: string;
-    temp: string;
-    tempDetail: string;
-  };
-}
-
-// Detect what stage the walk is in by scanning AI messages for stage-specific questions.
-// Stages advance progressively — once we pass a stage, we don't go back.
-const STAGE_ORDER: JourneyStage[] = ['start', 'plant_id', 'symptoms', 'environment', 'care_history', 'complete'];
-
-// Extract plant name from conversation
-function extractPlantName(messages: { role: string; content: string }[]): string {
-  const knownPlants = [
-    'snake plant', 'spider plant', 'tomato', 'basil', 'rose', 'orchid', 'succulent', 'fern',
-    'cactus', 'monstera', 'pothos', 'aloe', 'lavender', 'mint', 'pepper', 'cucumber', 'lettuce',
-    'strawberry', 'blueberry', 'hibiscus', 'sunflower', 'petunia', 'geranium', 'ivy', 'palm',
-    'lily', 'daisy', 'marigold', 'zinnia', 'cilantro', 'parsley', 'thyme', 'sage', 'rosemary',
-    'dill', 'chive', 'philodendron', 'rubber plant', 'jade plant', 'peace lily', 'dracaena',
-    'ficus', 'boston fern', 'english ivy', 'bamboo', 'african violet', 'begonia', 'coleus',
-    'dieffenbachia', 'schefflera', 'croton', 'calathea', 'maranta', 'prayer plant', 'zz plant',
-    'hoya', 'string of pearls', 'anthurium', 'bromeliad', 'syngonium', 'arrowhead plant',
-    'avocado', 'lemon', 'lime', 'orange', 'mango', 'papaya', 'banana', 'fig', 'olive', 'grape',
-    'cherry', 'apple', 'pear', 'peach', 'plum', 'pomegranate', 'guava', 'passionfruit',
-    'watermelon', 'cantaloupe', 'squash', 'zucchini', 'pumpkin', 'corn', 'bean', 'pea',
-    'carrot', 'onion', 'garlic', 'potato', 'sweet potato', 'beet', 'radish', 'turnip',
-    'spinach', 'kale', 'arugula', 'chard', 'cabbage', 'broccoli', 'cauliflower', 'celery',
-    'asparagus', 'artichoke', 'eggplant', 'okra', 'jalapeño', 'habanero', 'serrano',
-    'gardenia', 'jasmine', 'hydrangea', 'azalea', 'rhododendron', 'camellia', 'magnolia',
-    'wisteria', 'clematis', 'bougainvillea', 'plumeria', 'bird of paradise', 'heliconia',
-    'poinsettia', 'amaryllis', 'tulip', 'daffodil', 'hyacinth', 'crocus', 'iris', 'peony',
-    'dahlia', 'chrysanthemum', 'aster', 'cosmos', 'poppy', 'snapdragon', 'foxglove',
-    'lemongrass', 'oregano', 'tarragon', 'chamomile', 'bay laurel', 'chives',
-    'fiddle leaf fig', 'money tree', 'chinese evergreen', 'cast iron plant', 'air plant',
-    'aloe vera', 'christmas cactus', 'string of hearts', 'wandering jew', 'tradescantia',
-  ];
-
-  // Priority 1: Check AI photo-based identification patterns (most authoritative)
-  // AI might say "this is a...", "this appears to be...", "I can see...", "looking at..."
-  for (const msg of messages) {
-    if (msg.role !== 'assistant') continue;
-    const lower = msg.content.toLowerCase();
-
-    // Photo identification patterns
-    const photoPatterns = [
-      /(?:this is|appears to be|looks like|i can see|from the photo.*?it's|i'd identify this as|this seems to be)\s+(?:a|an)\s+([a-z][a-z ]{2,30}?)(?:\s+plant)?[.,!?\s]/i,
-      /(?:identified|identifying|recognize|recognized)\s+(?:this|it)\s+as\s+(?:a|an)\s+([a-z][a-z ]{2,30}?)(?:\s+plant)?[.,!?\s]/i,
-    ];
-
-    for (const pattern of photoPatterns) {
-      const match = msg.content.match(pattern);
-      if (match) {
-        const name = match[1].trim().toLowerCase();
-        const skip = ['healthy', 'sick', 'beautiful', 'lovely', 'common', 'popular', 'indoor', 'outdoor', 'tropical', 'good', 'nice'];
-        if (!skip.includes(name)) {
-          return name.replace(/\b\w/g, c => c.toUpperCase());
-        }
-      }
-    }
-  }
-
-  // Priority 2: Check known plant names across ALL messages
-  for (const msg of messages) {
-    const lower = msg.content.toLowerCase();
-    for (const plant of knownPlants) {
-      if (lower.includes(plant)) {
-        return plant.replace(/\b\w/g, c => c.toUpperCase());
-      }
-    }
-  }
-
-  // Priority 3: Check AI messages for general confirmation patterns
-  const confirmPatterns = [
-    /your\s+([a-z][a-z ]{2,20}?)(?:\s+plant|\s+bush|\s+tree|\s+vine)?[.,!?\s]/i,
-    /(?:an?)\s+([a-z][a-z ]{2,20}?)\s+plant[.,!?\s]/i,
-    /(?:the)\s+([a-z][a-z ]{2,20}?)\s+(?:plant|tree|bush|vine)[.,!?\s]/i,
-  ];
-  for (const msg of messages) {
-    if (msg.role !== 'assistant') continue;
-    for (const pattern of confirmPatterns) {
-      const confirmMatch = msg.content.match(pattern);
-      if (confirmMatch) {
-        const name = confirmMatch[1].trim().toLowerCase();
-        const skip = ['got', 'the', 'that', 'this', 'good', 'great', 'nice', 'let', 'take', 'little', 'new', 'other', 'first', 'next', 'bottom', 'top', 'same', 'whole', 'entire', 'healthy', 'sick', 'indoor', 'outdoor'];
-        if (!skip.includes(name)) {
-          return name.replace(/\b\w/g, c => c.toUpperCase());
-        }
-      }
-    }
-  }
-
-  // Priority 4: Check user messages for plant names they mention directly
-  const userPlantPatterns = [
-    /(?:it's|its|i have|i've got|my)\s+(?:a|an)?\s*([a-z][a-z ]{2,20}?)(?:\s+plant|\s+tree)?[.,!?\s]/i,
-    /([a-z][a-z ]{2,20}?)\s+plant[.,!?\s]/i,
-  ];
-  for (const msg of messages) {
-    if (msg.role !== 'user') continue;
-    for (const pattern of userPlantPatterns) {
-      const match = msg.content.match(pattern);
-      if (match) {
-        const name = match[1].trim().toLowerCase();
-        const skip = ['the', 'a', 'an', 'my', 'this', 'that', 'little', 'small', 'big', 'new', 'old'];
-        if (!skip.includes(name) && name.length > 2) {
-          return name.replace(/\b\w/g, c => c.toUpperCase());
-        }
-      }
-    }
-  }
-
-  return 'Your';
-}
-
-// Truncate text to maxLen, ending at a word boundary
-function truncate(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  const cut = text.substring(0, maxLen);
-  const lastSpace = cut.lastIndexOf(' ');
-  return (lastSpace > maxLen * 0.5 ? cut.substring(0, lastSpace) : cut) + '...';
-}
-
-// Find the first user response that answers a question about a given topic.
-// We pair AI questions with the user reply that follows.
-function findUserResponseAbout(
-  messages: { role: string; content: string }[],
-  aiTopicKeywords: string[],
-): string | null {
-  for (let i = 0; i < messages.length - 1; i++) {
-    if (messages[i].role !== 'assistant') continue;
-    const aiLower = messages[i].content.toLowerCase();
-    if (aiTopicKeywords.some(kw => aiLower.includes(kw))) {
-      // Find next user message
-      for (let j = i + 1; j < messages.length; j++) {
-        if (messages[j].role === 'user' && messages[j].content.trim().length > 2) {
-          return messages[j].content.trim();
-        }
-      }
-    }
-  }
-  return null;
-}
-
-// Extract summary for each stage by pulling actual conversation content
-function extractStageSummary(messages: { role: string; content: string }[], stage: 'plant_id' | 'symptoms' | 'environment' | 'care_history' | 'diagnosis'): string {
-  const userMessages = messages.filter(m => m.role === 'user').map(m => m.content);
-  const aiMessages = messages.filter(m => m.role === 'assistant').map(m => m.content);
-
-  if (stage === 'plant_id') {
-    const plantName = extractPlantName(messages);
-    if (plantName !== 'Your') return `${plantName} plant`;
-    // Fallback: use first user message as it's typically the plant identification
-    if (userMessages.length > 0) return truncate(userMessages[0], 60);
-    return 'Plant discussed';
-  }
-
-  if (stage === 'symptoms') {
-    // Find what the user said about symptoms
-    const response = findUserResponseAbout(messages, [
-      'symptom', 'seeing', 'notice', 'observing', 'what are you', 'describe',
-      'color', 'spots', 'wilting', 'drooping', 'wrong with',
-    ]);
-    if (response) return truncate(response, 80);
-    // Fallback: scan all user messages for symptom-related content
-    for (const msg of userMessages) {
-      const lower = msg.toLowerCase();
-      if (['yellow', 'brown', 'spot', 'wilt', 'droop', 'curl', 'dying', 'pale', 'hole', 'dry', 'crispy', 'soft', 'mushy', 'rot'].some(kw => lower.includes(kw))) {
-        return truncate(msg, 80);
-      }
-    }
-    return 'Symptoms discussed';
-  }
-
-  if (stage === 'environment') {
-    const response = findUserResponseAbout(messages, [
-      'sun', 'light', 'indoor', 'outdoor', 'where', 'soil', 'temperature',
-      'location', 'placed', 'garden', 'pot', 'container', 'bed',
-    ]);
-    if (response) return truncate(response, 80);
-    return 'Environment discussed';
-  }
-
-  if (stage === 'care_history') {
-    const response = findUserResponseAbout(messages, [
-      'water', 'fertiliz', 'care', 'routine', 'how long', 'how often',
-      'feed', 'spray', 'prune', 'repot', 'recent',
-    ]);
-    if (response) return truncate(response, 80);
-    return 'Care routine discussed';
-  }
-
-  if (stage === 'diagnosis') {
-    // Extract the core diagnosis phrase from AI messages
-    for (const msg of aiMessages) {
-      const lower = msg.toLowerCase();
-
-      // Try to extract a short diagnosis clause like "likely overwatering" or "sounds like root rot"
-      const clausePatterns = [
-        /(?:it'?s\s+)?(?:likely|probably)\s+(.{3,40}?)(?:[.,;!]|\s+(?:so|and|which|because|I'd|you should))/i,
-        /(?:i\s+suspect|i\s+think)\s+(?:it(?:'s| is| might be)\s+)?(.{3,40}?)(?:[.,;!]|\s+(?:so|and|which|because))/i,
-        /(?:sounds like|appears to be|looks like)\s+(.{3,40}?)(?:[.,;!]|\s+(?:so|and|which|because))/i,
-        /(?:caused by|due to)\s+(.{3,40}?)(?:[.,;!]|\s+(?:so|and|which))/i,
-      ];
-
-      for (const pattern of clausePatterns) {
-        const match = msg.match(pattern);
-        if (match) {
-          const clause = match[1].trim().replace(/[.,;!]+$/, '');
-          // Capitalize first letter
-          return clause.charAt(0).toUpperCase() + clause.slice(1);
-        }
-      }
-
-      // Fallback: grab just the first sentence if it contains a diagnosis keyword
-      if (['likely', 'suspect', 'sounds like', 'appears to be', 'probably', 'recommend', 'cause'].some(kw => lower.includes(kw))) {
-        const firstSentence = msg.split(/(?<=[.!?])\s+/)[0];
-        return truncate(firstSentence.trim(), 60);
-      }
-    }
-    return 'Assessment provided';
-  }
-
-  return 'Discussed';
-}
-
-// Get care recommendations based on plant type
-function getCareRecommendations(plantName: string): SummaryData['careRecommendations'] {
-  const lower = plantName.toLowerCase();
-
-  // Vegetables
-  if (lower.includes('tomato')) {
-    return { light: 'Full Sun', lightDetail: '6-8h/day', water: 'Regular', waterDetail: '1-2"/week', temp: '70-85°F', tempDetail: 'Warm' };
-  }
-  if (lower.includes('pepper')) {
-    return { light: 'Full Sun', lightDetail: '6-8h/day', water: 'Moderate', waterDetail: '1"/week', temp: '70-80°F', tempDetail: 'Warm' };
-  }
-  if (lower.includes('lettuce') || lower.includes('basil') || lower.includes('mint')) {
-    return { light: 'Part Sun', lightDetail: '4-6h/day', water: 'Regular', waterDetail: '1"/week', temp: '60-70°F', tempDetail: 'Cool' };
-  }
-
-  // Succulents & Cacti
-  if (lower.includes('succulent') || lower.includes('cactus') || lower.includes('aloe')) {
-    return { light: 'Bright', lightDetail: '6h/day', water: 'Low', waterDetail: 'Every 2wks', temp: '65-75°F', tempDetail: 'Warm' };
-  }
-
-  // Tropical houseplants
-  if (lower.includes('monstera') || lower.includes('pothos') || lower.includes('philodendron')) {
-    return { light: 'Bright Indirect', lightDetail: '4-6h/day', water: 'Moderate', waterDetail: 'Weekly', temp: '65-80°F', tempDetail: 'Warm' };
-  }
-
-  // Snake plant
-  if (lower.includes('snake')) {
-    return { light: 'Low-Bright', lightDetail: 'Flexible', water: 'Low', waterDetail: 'Every 2wks', temp: '60-80°F', tempDetail: 'Flexible' };
-  }
-
-  // Ferns
-  if (lower.includes('fern')) {
-    return { light: 'Indirect', lightDetail: '3-4h/day', water: 'High', waterDetail: 'Keep moist', temp: '60-75°F', tempDetail: 'Cool-Warm' };
-  }
-
-  // Herbs
-  if (lower.includes('lavender') || lower.includes('rosemary')) {
-    return { light: 'Full Sun', lightDetail: '6-8h/day', water: 'Low', waterDetail: 'Dry out', temp: '60-70°F', tempDetail: 'Cool' };
-  }
-
-  // Roses
-  if (lower.includes('rose')) {
-    return { light: 'Full Sun', lightDetail: '6h/day', water: 'Regular', waterDetail: '1-2"/week', temp: '60-75°F', tempDetail: 'Moderate' };
-  }
-
-  // Orchids
-  if (lower.includes('orchid')) {
-    return { light: 'Bright Indirect', lightDetail: '4-6h/day', water: 'Low', waterDetail: 'Weekly', temp: '65-80°F', tempDetail: 'Warm' };
-  }
-
-  // Default for unknown plants
-  return { light: 'Bright', lightDetail: '4-6h/day', water: 'Moderate', waterDetail: 'Weekly', temp: '65-75°F', tempDetail: 'Moderate' };
-}
-
-// Generate complete summary data
-function generateSummaryData(messages: { role: string; content: string }[]): SummaryData {
-  const plantName = extractPlantName(messages);
-
-  return {
-    plantName,
-    plantIdentified: extractStageSummary(messages, 'plant_id'),
-    symptomsNoted: extractStageSummary(messages, 'symptoms'),
-    environmentReviewed: extractStageSummary(messages, 'environment'),
-    careHistoryDiscussed: extractStageSummary(messages, 'care_history'),
-    diagnosisGiven: extractStageSummary(messages, 'diagnosis'),
-    careRecommendations: getCareRecommendations(plantName),
-  };
-}
-
-// Get background gradient based on journey progress
-function getBackgroundGradient(stage: JourneyStage): string {
-  switch (stage) {
-    case 'start':
-      return 'from-stone-900/80 via-transparent to-stone-900/90'; // neutral
-    case 'plant_id':
-      return 'from-emerald-950/50 via-transparent to-stone-900/90'; // slight green tint
-    case 'symptoms':
-      return 'from-stone-900/80 via-stone-800/40 to-stone-900/90'; // slight warmth
-    case 'environment':
-      return 'from-emerald-950/40 via-transparent to-stone-900/90'; // more green
-    case 'care_history':
-      return 'from-emerald-950/50 via-emerald-900/20 to-stone-900/90'; // stronger green
-    case 'complete':
-      return 'from-amber-950/30 via-emerald-950/20 to-amber-950/20'; // celebration warmth
-  }
-}
-
-function detectStageFromMessages(messages: { role: string; content: string }[]): JourneyStage {
-  // Simplified stage detection based on message count and content patterns
-  // Progress through stages based on number of back-and-forth exchanges
-
-  if (messages.length === 0) return 'start';
-
-  let stageIndex = 0;
-  let userMessageCount = 0;
-
-  for (const msg of messages) {
-    const lower = msg.content.toLowerCase();
-
-    if (msg.role === 'user') {
-      userMessageCount++;
-    }
-
-    if (msg.role !== 'assistant') continue;
-
-    // Check for completion/diagnosis - AI giving recommendations or diagnosis
-    if (
-      lower.includes('happy gardening') ||
-      lower.includes("it's likely") ||
-      lower.includes('i suspect') ||
-      lower.includes('i think it') ||
-      lower.includes('sounds like') ||
-      lower.includes('i\'d recommend') ||
-      lower.includes('my recommendation') ||
-      lower.includes('what to do today') ||
-      lower.includes('do today') ||
-      lower.includes('root rot') ||
-      lower.includes('fungal') ||
-      lower.includes('bacterial') ||
-      lower.includes('deficien') ||
-      lower.includes('overwater') ||
-      lower.includes('underwater') ||
-      (lower.includes('caused by') && lower.length > 50) // diagnosis explanation
-    ) {
-      stageIndex = Math.max(stageIndex, 5);
-    }
-    // Check for care/watering questions
-    else if (
-      lower.includes('water') ||
-      lower.includes('fertiliz') ||
-      lower.includes('care') ||
-      lower.includes('routine') ||
-      lower.includes('how long have you had')
-    ) {
-      stageIndex = Math.max(stageIndex, 4);
-    }
-    // Check for environment questions
-    else if (
-      lower.includes('sun') ||
-      lower.includes('light') ||
-      lower.includes('indoor') ||
-      lower.includes('outdoor') ||
-      lower.includes('where') ||
-      lower.includes('soil') ||
-      lower.includes('temperature')
-    ) {
-      stageIndex = Math.max(stageIndex, 3);
-    }
-    // Check for symptom questions
-    else if (
-      lower.includes('symptom') ||
-      lower.includes('yellow') ||
-      lower.includes('brown') ||
-      lower.includes('spot') ||
-      lower.includes('wilt') ||
-      lower.includes('droop') ||
-      lower.includes('color') ||
-      lower.includes('leaves') ||
-      lower.includes('describe') ||
-      lower.includes('seeing') ||
-      lower.includes('notice')
-    ) {
-      stageIndex = Math.max(stageIndex, 2);
-    }
-    // Check for plant_id (walk started)
-    else if (lower.includes('take a walk') || lower.includes('kind of plant')) {
-      stageIndex = Math.max(stageIndex, 1);
-    }
-  }
-
-  // Fallback: use message count to estimate stage if keywords didn't trigger
-  // After user speaks 2+ times, should be at least symptoms
-  if (userMessageCount >= 2 && stageIndex < 2) {
-    stageIndex = 2;
-  }
-  // After user speaks 3+ times, should be at least environment
-  if (userMessageCount >= 3 && stageIndex < 3) {
-    stageIndex = 3;
-  }
-  // After user speaks 4+ times, should be at least care_history
-  if (userMessageCount >= 4 && stageIndex < 4) {
-    stageIndex = 4;
-  }
-
-  return STAGE_ORDER[stageIndex];
-}
+// SummaryData type and business logic functions are now in lib/ modules:
+// - lib/plantExtraction.ts
+// - lib/stageDetection.ts (STAGE_ORDER, detectStageFromMessages, extractStageSummary, etc.)
+// - lib/summaryGeneration.ts (SummaryData, generateSummaryData, getCareRecommendations)
+// - lib/backgroundGradient.ts (getBackgroundGradient)
+// - lib/photoTrigger.ts (hasPhotoTrigger)
 
 export function VoiceLoop() {
   const [appState, setAppState] = useState<AppState>('idle');
@@ -505,46 +105,16 @@ export function VoiceLoop() {
     }
   }, [isListening, isSpeaking, userTranscript]);
 
-  // Decay volume over time
+  // Decay volume over time — only while actively walking
   useEffect(() => {
+    if (appState !== 'active') return;
     const interval = setInterval(() => {
       setVolume((v) => Math.max(0.1, v * 0.95));
     }, 100);
     return () => clearInterval(interval);
-  }, []);
+  }, [appState]);
 
-  // Helper to check if text contains photo-related triggers.
-  // The Live API generates speech natively — its transcription wording varies,
-  // so we match broadly on key words rather than exact phrases.
-  const hasPhotoTrigger = (text: string, source: 'ai' | 'user') => {
-    const lower = text.toLowerCase();
-    if (source === 'ai') {
-      // AI suggesting user send a photo: match any mention of photo/picture
-      // combined with action verbs the AI would use
-      const hasPhotoWord = lower.includes('photo') || lower.includes('picture') || lower.includes('image');
-      const hasSuggestVerb =
-        lower.includes('show') ||
-        lower.includes('send') ||
-        lower.includes('take') ||
-        lower.includes('see') ||
-        lower.includes('like to') ||
-        lower.includes('want to') ||
-        lower.includes('help me') ||
-        lower.includes('would') ||
-        lower.includes('can you') ||
-        lower.includes('could you');
-      return hasPhotoWord && hasSuggestVerb;
-    }
-    // User offering to send a photo
-    const hasPhotoWord = lower.includes('photo') || lower.includes('picture') || lower.includes('image');
-    const hasActionWord =
-      lower.includes('show') ||
-      lower.includes('take') ||
-      lower.includes('send') ||
-      lower.includes('upload') ||
-      lower.includes('let me');
-    return hasPhotoWord && hasActionWord;
-  };
+  // hasPhotoTrigger is now imported from @/lib/photoTrigger
 
   // Speak acknowledgment when photo chooser appears
   const speakPhotoPrompt = useCallback(() => {
@@ -828,12 +398,13 @@ export function VoiceLoop() {
           </div>
           <button
             onClick={handleStart}
+            aria-label="Start garden walk"
             className="group relative flex items-center justify-center w-20 h-20 bg-green-600 rounded-full hover:bg-green-500 transition-all duration-300 shadow-xl hover:shadow-2xl hover:shadow-green-500/50 active:scale-95"
           >
             <svg className="w-12 h-12 text-white transition-transform duration-200 group-hover:scale-110" viewBox="0 0 24 24" style={{ shapeRendering: 'geometricPrecision' }}>
               <polygon points="8,5 19,12 8,19" fill="currentColor" />
             </svg>
-            <span className="absolute -bottom-12 text-sm text-stone-500 font-medium tracking-wide">START WALK</span>
+            <span className="absolute -bottom-12 text-sm text-stone-400 font-medium tracking-wide">START WALK</span>
           </button>
         </div>
       )}
@@ -850,45 +421,8 @@ export function VoiceLoop() {
       {appState === 'active' && (
         <div className="relative z-10 flex flex-col h-full w-full">
           {/* Header with live indicator */}
-          <style>{`
-            @keyframes pulse-glow {
-              0%, 100% {
-                box-shadow: 0 0 0 0 currentColor;
-                opacity: 1;
-              }
-              50% {
-                opacity: 0.7;
-              }
-            }
-            @keyframes listening-pulse {
-              0%, 100% {
-                transform: scale(1);
-                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
-              }
-              50% {
-                transform: scale(1.1);
-                box-shadow: 0 0 0 4px rgba(34, 197, 94, 0);
-              }
-            }
-            @keyframes speaking-pulse {
-              0%, 100% {
-                transform: scale(1);
-                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
-              }
-              50% {
-                transform: scale(1.1);
-                box-shadow: 0 0 0 4px rgba(59, 130, 246, 0);
-              }
-            }
-            .listening-indicator {
-              animation: listening-pulse 1.5s ease-in-out infinite;
-            }
-            .speaking-indicator {
-              animation: speaking-pulse 1.5s ease-in-out infinite;
-            }
-          `}</style>
           <div className="absolute top-0 w-full p-6 flex justify-between items-start" style={{ paddingTop: 'max(1.5rem, env(safe-area-inset-top))' }}>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2" aria-live="polite">
               <div
                 className={`w-2 h-2 rounded-full transition-all duration-300 ${
                   isSpeaking
@@ -920,13 +454,14 @@ export function VoiceLoop() {
             <div className="flex flex-col items-center gap-2 group">
               <button
                 onClick={handleEnd}
+                aria-label="End garden walk"
                 className="w-14 h-14 bg-red-500/20 hover:bg-red-500/30 active:bg-red-500/40 border border-red-500/50 hover:border-red-500/70 rounded-full flex items-center justify-center backdrop-blur-md transition-all duration-300 active:scale-95 shadow-lg shadow-red-500/20 hover:shadow-red-500/40"
               >
                 <svg className="w-6 h-6 text-red-300 transition-transform duration-200 group-hover:rotate-90 group-active:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
-              <span className="text-xs text-stone-500 font-semibold transition-colors duration-200 group-hover:text-stone-400">END WALK</span>
+              <span className="text-xs text-stone-400 font-semibold transition-colors duration-200 group-hover:text-stone-300">END WALK</span>
             </div>
           </div>
 
@@ -937,7 +472,7 @@ export function VoiceLoop() {
 
           {photoState === 'capturing_camera' && <CameraCapture onCapture={handlePhotoCapture} onCancel={handlePhotoCancel} />}
 
-          {photoState === 'selecting_library' && <PhotoLibrary onSelect={handlePhotoCapture} onCancel={handlePhotoCancel} />}
+          {photoState === 'selecting_library' && <PhotoLibrary onSelect={handlePhotoCapture} onCancel={handlePhotoCancel} onError={(msg) => console.error('[PhotoLibrary]', msg)} />}
 
           {photoState === 'processing' && (
             <div
@@ -1198,10 +733,11 @@ Generated by Gardening Whisperer`;
                       setCopiedSummary(true);
                       setTimeout(() => setCopiedSummary(false), 2000);
                     }).catch(() => {
-                      setCopiedSummary(true);
-                      setTimeout(() => setCopiedSummary(false), 2000);
+                      // Clipboard write failed — don't show "Copied!" on failure
+                      console.error('Clipboard write failed');
                     });
                   }}
+                  aria-label="Copy summary to clipboard"
                   className={`flex-1 py-4 px-4 rounded-2xl font-medium transition-colors flex items-center justify-center gap-2 shadow-lg ${
                     copiedSummary
                       ? 'bg-green-600 text-white'
@@ -1255,6 +791,7 @@ Generated by Gardening Whisperer`;
                     }
                   }}
                   disabled={calendarState === 'adding'}
+                  aria-label="Add reminder to Google Calendar"
                   className={`flex-1 py-4 px-4 rounded-2xl font-medium transition-colors flex items-center justify-center gap-2 shadow-lg ${
                     calendarState === 'added'
                       ? 'bg-blue-600 text-white'
@@ -1317,6 +854,7 @@ Generated by Gardening Whisperer`;
               {/* Full-width New Walk */}
               <button
                 onClick={handleReset}
+                aria-label="Start a new garden walk"
                 className="w-full py-4 px-4 bg-green-700 active:bg-green-600 rounded-2xl font-medium text-white transition-colors shadow-lg"
               >
                 New Walk
@@ -1329,7 +867,7 @@ Generated by Gardening Whisperer`;
 
       {/* ERROR */}
       {appState === 'error' && (
-        <div className="relative z-10 flex flex-col items-center justify-center h-full px-6 text-center">
+        <div role="alert" className="relative z-10 flex flex-col items-center justify-center h-full px-6 text-center">
           <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mb-4">
             <svg className="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

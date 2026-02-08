@@ -3,9 +3,11 @@ import React, { useRef, useEffect } from 'react';
 interface PhotoLibraryProps {
   onSelect: (imageData: string) => void;
   onCancel: () => void;
+  onError?: (message: string) => void;
 }
 
-const PhotoLibrary: React.FC<PhotoLibraryProps> = ({ onSelect, onCancel }) => {
+const PhotoLibrary: React.FC<PhotoLibraryProps> = ({ onSelect, onCancel, onError }) => {
+  const reportError = onError || ((msg: string) => console.error(msg));
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -23,7 +25,7 @@ const PhotoLibrary: React.FC<PhotoLibraryProps> = ({ onSelect, onCancel }) => {
 
     // Validate file type
     if (!file.type.startsWith('image/')) {
-      alert('Please select a valid image file');
+      reportError('Please select a valid image file');
       onCancel();
       return;
     }
@@ -37,7 +39,7 @@ const PhotoLibrary: React.FC<PhotoLibraryProps> = ({ onSelect, onCancel }) => {
     };
 
     reader.onerror = () => {
-      alert('Error reading file');
+      reportError('Error reading file');
       onCancel();
     };
 

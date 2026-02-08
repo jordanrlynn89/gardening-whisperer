@@ -19,6 +19,7 @@ function getStageIndex(stage: JourneyStage): number {
 function ArchwayIcon({ active }: { active: boolean }) {
   return (
     <svg
+      aria-hidden="true"
       width="48"
       height="48"
       viewBox="0 0 48 48"
@@ -51,6 +52,7 @@ function PlantIcon({ visible, active }: { visible: boolean; active: boolean }) {
 
   return (
     <svg
+      aria-hidden="true"
       width="40"
       height="40"
       viewBox="0 0 1000 500"
@@ -70,6 +72,7 @@ function PlantIcon({ visible, active }: { visible: boolean; active: boolean }) {
 function SymptomsIcon({ visible, active }: { visible: boolean; active: boolean }) {
   return (
     <svg
+      aria-hidden="true"
       width="40"
       height="40"
       viewBox="0 0 40 40"
@@ -96,6 +99,7 @@ function SymptomsIcon({ visible, active }: { visible: boolean; active: boolean }
 function EnvironmentIcon({ visible, active }: { visible: boolean; active: boolean }) {
   return (
     <svg
+      aria-hidden="true"
       width="40"
       height="40"
       viewBox="0 0 40 40"
@@ -126,6 +130,7 @@ function EnvironmentIcon({ visible, active }: { visible: boolean; active: boolea
 function CareIcon({ visible, active }: { visible: boolean; active: boolean }) {
   return (
     <svg
+      aria-hidden="true"
       width="40"
       height="40"
       viewBox="0 0 40 40"
@@ -153,6 +158,7 @@ function CareIcon({ visible, active }: { visible: boolean; active: boolean }) {
 function DiagnosisIcon({ visible, active }: { visible: boolean; active: boolean }) {
   return (
     <svg
+      aria-hidden="true"
       width="48"
       height="48"
       viewBox="0 0 48 48"
