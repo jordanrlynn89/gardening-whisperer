@@ -119,7 +119,7 @@ describe('CameraCapture', () => {
     expect(mockOnCancel).toHaveBeenCalled();
   });
 
-  it('should call capturePhoto and onCapture when capture button is clicked', async () => {
+  it('should call capturePhoto and onCapture directly when capture button is clicked', async () => {
     mockIsActive = true;
     mockStream = {} as MediaStream;
     mockCapturePhoto.mockResolvedValue('data:image/jpeg;base64,testImageData');
@@ -128,16 +128,11 @@ describe('CameraCapture', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /capture/i }));
 
-    // Component enters review mode after capture
+    // Capture sends directly to onCapture (no review step)
     await waitFor(() => {
       expect(mockCapturePhoto).toHaveBeenCalled();
-      expect(screen.getByText('Review')).toBeInTheDocument();
+      expect(mockOnCapture).toHaveBeenCalledWith('data:image/jpeg;base64,testImageData');
     });
-
-    // Click "Analyze" to confirm and trigger onCapture
-    fireEvent.click(screen.getByRole('button', { name: /confirm and analyze/i }));
-
-    expect(mockOnCapture).toHaveBeenCalledWith('data:image/jpeg;base64,testImageData');
   });
 
   it('should have video element with playsInline for iOS', () => {

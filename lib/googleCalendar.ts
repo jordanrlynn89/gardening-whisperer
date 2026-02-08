@@ -8,6 +8,7 @@ export interface CalendarEventData {
 interface SummaryInput {
   plantName: string;
   diagnosisGiven: string;
+  action?: string;
 }
 
 interface ActionsInput {
@@ -54,7 +55,9 @@ export function formatCalendarEvent(
   descParts.push('Created by Gardening Whisperer');
 
   return {
-    summary: `Check on ${summary.plantName}`,
+    summary: summary.action
+      ? `Check ${summary.plantName} \u2014 ${summary.action}`
+      : `Check on ${summary.plantName}`,
     description: descParts.join('\n'),
     start: { date: formatDate(start) },
     end: { date: formatDate(end) },
