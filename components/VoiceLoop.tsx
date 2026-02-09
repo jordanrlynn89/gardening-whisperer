@@ -119,10 +119,13 @@ export function VoiceLoop() {
   const [copiedSummary, setCopiedSummary] = useState(false);
   const [calendarState, setCalendarState] = useState<'idle' | 'adding' | 'added' | 'error'>('idle');
   const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [photoProcessingTime, setPhotoProcessingTime] = useState<number>(0);
   const conversationRef = useRef<HTMLDivElement>(null);
   const prevStageRef = useRef<JourneyStage>('start');
   const capturePhotoRef = useRef<(() => void) | null>(null);
   const photoCooldownUntilRef = useRef<number>(0);
+  const suppressPhotoTriggersUntilRef = useRef<number>(0);
+  const photoTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const { isConnected: isCalendarConnected, accessToken: calendarToken, isGISReady, signIn: calendarSignIn, signOut: calendarSignOut, error: calendarSetupError } = useGoogleCalendar();
 
@@ -205,6 +208,15 @@ export function VoiceLoop() {
     }, []),
   });
 
+  // Track photo processing time
+  useEffect(() => {
+    if (photoState !== 'processing') return;
+    const interval = setInterval(() => {
+      setPhotoProcessingTime((t) => t + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [photoState]);
+
   // Update volume based on listening/speaking state
   useEffect(() => {
     if (isListening && !isSpeaking) {
@@ -244,6 +256,11 @@ export function VoiceLoop() {
 
     for (const msg of newMessages) {
       const source = msg.role === 'assistant' ? 'ai' : 'user';
+      // Skip photo trigger detection if we just sent a photo analysis (prevents AI response from re-triggering camera)
+      if (Date.now() < suppressPhotoTriggersUntilRef.current) {
+        console.log('[VoiceLoop] Skipping photo trigger detection - recently sent photo analysis');
+        continue;
+      }
       if (hasPhotoTrigger(msg.content, source) && photoState === 'none' && Date.now() > photoCooldownUntilRef.current) {
         console.log('[VoiceLoop] Photo trigger detected in completed message:', msg.content.slice(0, 80));
         if (source === 'ai' && isSpeaking) {
@@ -271,6 +288,8 @@ export function VoiceLoop() {
   // Also detect from streaming AI transcripts
   useEffect(() => {
     if (!aiTranscript || photoState !== 'none' || Date.now() <= photoCooldownUntilRef.current) return;
+    // Skip trigger detection if we recently sent photo analysis
+    if (Date.now() < suppressPhotoTriggersUntilRef.current) return;
     if (hasPhotoTrigger(aiTranscript, 'ai')) {
       pendingPhotoTriggerRef.current = true;
     }
@@ -278,6 +297,8 @@ export function VoiceLoop() {
 
   useEffect(() => {
     if (!userTranscript || photoState !== 'none' || Date.now() <= photoCooldownUntilRef.current) return;
+    // Skip trigger detection if we recently sent photo analysis
+    if (Date.now() < suppressPhotoTriggersUntilRef.current) return;
     if (hasPhotoTrigger(userTranscript, 'user')) {
       pendingPhotoTriggerRef.current = false;
       setPhotoState('capturing_camera');
@@ -410,6 +431,17 @@ export function VoiceLoop() {
       }
 
       setPhotoState('processing');
+      setPhotoProcessingTime(0);
+
+      // Set a timeout to resume conversation if analysis takes too long (20 seconds)
+      photoTimeoutRef.current = setTimeout(() => {
+        console.log('[VoiceLoop] Photo analysis timeout - resuming conversation');
+        setPhotoState('none');
+        // Clear any pending photo trigger and suppress new triggers while waiting for delayed analysis
+        pendingPhotoTriggerRef.current = false;
+        suppressPhotoTriggersUntilRef.current = Date.now() + 60000;
+        sendText('[System: Photo analysis is taking longer than usual. Tell the user to keep going and that you\'ll share the photo analysis when it arrives. Continue with the next garden walk question.]');
+      }, 20000);
 
       const backup = messagesRef.current ?? [];
       const allMsgs = messages.length >= backup.length ? messages : backup;
@@ -426,15 +458,30 @@ export function VoiceLoop() {
 
         const data = await res.json();
 
+        // Clear timeout if analysis completes before timeout
+        if (photoTimeoutRef.current) {
+          clearTimeout(photoTimeoutRef.current);
+          photoTimeoutRef.current = null;
+        }
+
         if (data.success && data.analysis) {
           console.log('[VoiceLoop] Photo analysis received:', data.analysis.slice(0, 100));
           sendText(`[Photo analysis] ${data.analysis}`);
+          // Suppress photo triggers for 45 seconds after sending analysis
+          // This prevents the AI's response from accidentally re-triggering the camera
+          suppressPhotoTriggersUntilRef.current = Date.now() + 45000;
+          console.log('[VoiceLoop] Photo triggers suppressed for 45 seconds');
         } else {
           console.warn('[VoiceLoop] Photo analysis failed:', data.error);
-          sendText('I tried to analyze the photo but had trouble. Can you describe what you see instead?');
+          sendText('I apologize, but photo analysis is temporarily unavailable. Can you describe what you see instead?');
         }
       } catch (err) {
         console.error('[VoiceLoop] Photo analysis fetch error:', err);
+        // Clear timeout on error
+        if (photoTimeoutRef.current) {
+          clearTimeout(photoTimeoutRef.current);
+          photoTimeoutRef.current = null;
+        }
         sendText('I tried to analyze the photo but had trouble. Can you describe what you see instead?');
       }
 
@@ -456,9 +503,12 @@ export function VoiceLoop() {
       return;
     }
 
-    // Open camera
+    // Open camera (manual button bypasses trigger suppression - user explicitly wants photo)
     console.log('[VoiceLoop] Manual camera button clicked');
     setPhotoState('capturing_camera');
+
+    // Clear trigger suppression when user manually requests photo
+    suppressPhotoTriggersUntilRef.current = 0;
 
     // Speak the photo prompt (reuse existing function)
     speakPhotoPrompt();
@@ -593,7 +643,13 @@ export function VoiceLoop() {
                   </svg>
                 </div>
                 <p className="text-xl font-medium text-pixel-on-surface mb-2">Analyzing your plant...</p>
-                <p className="text-sm text-pixel-on-surface-variant">This usually takes a few seconds</p>
+                {photoProcessingTime < 15 ? (
+                  <p className="text-sm text-pixel-on-surface-variant">This usually takes 10-30 seconds</p>
+                ) : photoProcessingTime < 30 ? (
+                  <p className="text-sm text-pixel-on-surface-variant">Still analyzing, hang tight...</p>
+                ) : (
+                  <p className="text-sm text-pixel-on-surface-variant">Taking longer than usual, please wait...</p>
+                )}
               </div>
             </div>
           )}
