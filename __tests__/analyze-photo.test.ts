@@ -135,7 +135,7 @@ describe('/api/analyze-photo', () => {
       const callArgs = mockGenerateContent.mock.calls[0][0];
       const textPart = callArgs.contents[0].parts[0].text;
       expect(textPart).toContain('plant diagnosis assistant');
-      expect(textPart).toContain('Overall health');
+      expect(textPart).toContain('Describe ONLY what you can directly observe');
     });
   });
 

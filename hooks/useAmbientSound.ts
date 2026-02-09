@@ -28,48 +28,47 @@ export function useAmbientSound({
     }
   }, []);
 
-  // Create Audio element on mount so the browser can preload it.
-  // Desktop Chrome requires this — lazily-created Audio elements can be
-  // blocked by autoplay policy even with a user gesture.
+  // No eager loading — audio is created on demand in startAmbient()
+
+  // Cleanup on unmount
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-
-    // Trimmed 30s loop (586 KB) — created by `node scripts/trim-audio.js`
-    const audio = new Audio('/sounds/birds-loop.mp3');
-    audio.loop = true;
-    audio.volume = volume;
-    birdsAudioRef.current = audio;
-
     return () => {
       clearFadeInterval();
       birdsAudioRef.current?.pause();
       birdsAudioRef.current = null;
     };
-  }, [volume, clearFadeInterval]);
+  }, [clearFadeInterval]);
 
   const startAmbient = useCallback(() => {
     if (isPlayingRef.current) return;
     isPlayingRef.current = true;
 
-    if (birdsAudioRef.current) {
-      clearFadeInterval();
-      birdsAudioRef.current.volume = 0;
-      birdsAudioRef.current.play().catch((err) => {
-        console.warn('[useAmbientSound] play() failed:', err.message);
-      });
-
-      let vol = 0;
-      fadeIntervalRef.current = setInterval(() => {
-        vol += 0.01;
-        if (vol >= volume) {
-          vol = volume;
-          clearFadeInterval();
-        }
-        if (birdsAudioRef.current) {
-          birdsAudioRef.current.volume = vol;
-        }
-      }, 50);
+    // Lazy load audio on first use
+    if (!birdsAudioRef.current) {
+      const audio = new Audio('/sounds/birds-loop.mp3');
+      audio.loop = true;
+      audio.volume = 0;
+      audio.onerror = () => console.log('[useAmbientSound] Failed to load birds-loop.mp3');
+      birdsAudioRef.current = audio;
     }
+
+    clearFadeInterval();
+    birdsAudioRef.current.volume = 0;
+    birdsAudioRef.current.play().catch((err) => {
+      console.warn('[useAmbientSound] play() failed:', err.message);
+    });
+
+    let vol = 0;
+    fadeIntervalRef.current = setInterval(() => {
+      vol += 0.01;
+      if (vol >= volume) {
+        vol = volume;
+        clearFadeInterval();
+      }
+      if (birdsAudioRef.current) {
+        birdsAudioRef.current.volume = vol;
+      }
+    }, 50);
   }, [volume, clearFadeInterval]);
 
   const stopAmbient = useCallback(() => {

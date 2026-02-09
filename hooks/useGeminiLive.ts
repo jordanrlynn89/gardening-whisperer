@@ -7,6 +7,7 @@ interface UseGeminiLiveReturn {
   disconnect: () => void;
   sendImage: (imageData: string, text?: string) => void;
   sendText: (text: string) => void;
+  suppressOutput: (enabled: boolean) => void;
   pauseMic: () => void;
   resumeMic: () => void;
   stopAudio: () => void;
@@ -250,15 +251,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
 
       // Start getUserMedia IMMEDIATELY while gesture is still fresh
       console.log('[useGeminiLive] Requesting mic access...');
-      const micPromise = navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: SAMPLE_RATE,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
+      const micPromise = navigator.mediaDevices.getUserMedia({ audio: true });
 
       // ── Step 2: Start WebSocket + AudioWorklet + mic in PARALLEL ──
       // All three can proceed simultaneously, reducing total connection time.
@@ -571,11 +564,17 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     );
   }, []);
 
+  const suppressOutput = useCallback((enabled: boolean) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ type: 'suppress_output', enabled }));
+  }, []);
+
   return {
     connect,
     disconnect,
     sendImage,
     sendText,
+    suppressOutput,
     pauseMic,
     resumeMic,
     stopAudio,

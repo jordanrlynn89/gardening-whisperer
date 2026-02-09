@@ -17,6 +17,7 @@ const mockSendText = jest.fn();
 const mockSendImage = jest.fn();
 const mockPauseMic = jest.fn();
 const mockResumeMic = jest.fn();
+const mockSuppressOutput = jest.fn();
 
 let geminiLiveState = {
   isConnected: false,
@@ -62,6 +63,7 @@ jest.mock('@/hooks/useGeminiLive', () => ({
       sendImage: mockSendImage,
       pauseMic: mockPauseMic,
       resumeMic: mockResumeMic,
+      suppressOutput: mockSuppressOutput,
       isConnected: geminiLiveState.isConnected,
       isListening: geminiLiveState.isListening,
       isSpeaking: geminiLiveState.isSpeaking,
@@ -81,6 +83,21 @@ jest.mock('@/hooks/useAmbientSound', () => ({
     duck: mockDuck,
     unduck: mockUnduck,
   }),
+}));
+
+const mockStartSpeechCommand = jest.fn();
+const mockStopSpeechCommand = jest.fn();
+let capturedSpeechOnTranscript: (text: string, isFinal: boolean) => void = () => {};
+
+jest.mock('@/hooks/useSpeechCommand', () => ({
+  useSpeechCommand: ({ onTranscript }: { onTranscript: (text: string, isFinal: boolean) => void }) => {
+    capturedSpeechOnTranscript = onTranscript;
+    return {
+      start: mockStartSpeechCommand,
+      stop: mockStopSpeechCommand,
+      isListening: false,
+    };
+  },
 }));
 
 jest.mock('@/hooks/useGoogleCalendar', () => ({
@@ -189,6 +206,13 @@ beforeAll(() => {
     },
   });
 
+  // SpeechSynthesisUtterance
+  (globalThis as unknown as Record<string, unknown>).SpeechSynthesisUtterance = jest.fn().mockImplementation(() => ({
+    rate: 1.0,
+    pitch: 1.0,
+    volume: 1.0,
+  }));
+
   // clipboard
   Object.defineProperty(navigator, 'clipboard', {
     writable: true,
@@ -240,19 +264,20 @@ describe('VoiceLoop', () => {
   describe('idle state rendering', () => {
     it('renders the app title', () => {
       render(<VoiceLoop />);
-      expect(screen.getByText('Gardening Whisperer')).toBeInTheDocument();
+      expect(screen.getByText('Gardening')).toBeInTheDocument();
+      expect(screen.getByText('Whisperer')).toBeInTheDocument();
     });
 
     it('renders the tagline', () => {
       render(<VoiceLoop />);
       expect(
-        screen.getByText('An immersive, voice-first guide for your plants')
+        screen.getByText('Your AI garden companion')
       ).toBeInTheDocument();
     });
 
-    it('renders the START WALK label', () => {
+    it('renders the Start Garden Walk label', () => {
       render(<VoiceLoop />);
-      expect(screen.getByText('START WALK')).toBeInTheDocument();
+      expect(screen.getByText('Start Garden Walk')).toBeInTheDocument();
     });
 
     it('renders a start button with correct aria-label', () => {
@@ -296,7 +321,8 @@ describe('VoiceLoop', () => {
         fireEvent.click(startButton);
       });
 
-      expect(screen.getByText('ENTERING THE GARDEN...')).toBeInTheDocument();
+      expect(screen.getByText('Entering')).toBeInTheDocument();
+      expect(screen.getByText('the Garden')).toBeInTheDocument();
     });
 
     it('prevents double-tap by ignoring second click', async () => {
@@ -343,19 +369,19 @@ describe('VoiceLoop', () => {
       expect(endButton).toBeInTheDocument();
     });
 
-    it('shows the END WALK label', async () => {
+    it('shows the End Walk label', async () => {
       await renderInActiveState();
-      expect(screen.getByText('END WALK')).toBeInTheDocument();
+      expect(screen.getByText('End Walk')).toBeInTheDocument();
     });
 
     it('shows listening status indicator', async () => {
       await renderInActiveState();
-      expect(screen.getByText('Listening...')).toBeInTheDocument();
+      expect(screen.getByText('Listening')).toBeInTheDocument();
     });
 
     it('has an aria-live polite region for status', async () => {
       await renderInActiveState();
-      const liveRegion = screen.getByText('Listening...').closest('[aria-live]');
+      const liveRegion = screen.getByText('Listening').closest('[aria-live]');
       expect(liveRegion).toHaveAttribute('aria-live', 'polite');
     });
 
@@ -410,7 +436,7 @@ describe('VoiceLoop', () => {
 
     it('shows the plant name in the summary header', async () => {
       await renderInSummaryState();
-      expect(screen.getByText('Tomato Plant')).toBeInTheDocument();
+      expect(screen.getByText('Tomato')).toBeInTheDocument();
     });
 
     it('shows "What We Covered" section', async () => {
@@ -423,8 +449,8 @@ describe('VoiceLoop', () => {
       expect(screen.getByText('Plant Identified')).toBeInTheDocument();
       expect(screen.getByText('Symptoms Noted')).toBeInTheDocument();
       expect(screen.getByText('Environment Reviewed')).toBeInTheDocument();
-      expect(screen.getByText('Care History Discussed')).toBeInTheDocument();
-      expect(screen.getByText('Diagnosis & Recommendations')).toBeInTheDocument();
+      expect(screen.getByText('Care History')).toBeInTheDocument();
+      expect(screen.getByText('Diagnosis')).toBeInTheDocument();
     });
 
     it('shows summary detail text from generateSummaryData', async () => {
@@ -471,14 +497,14 @@ describe('VoiceLoop', () => {
       expect(closeButton).toBeInTheDocument();
     });
 
-    it('shows View Full Conversation toggle', async () => {
+    it('shows View Conversation toggle', async () => {
       await renderInSummaryState();
-      expect(screen.getByText('View Full Conversation')).toBeInTheDocument();
+      expect(screen.getByText('View Conversation')).toBeInTheDocument();
     });
 
-    it('shows the date line with "Garden Walk Complete"', async () => {
+    it('shows the date line with "Garden Walk"', async () => {
       await renderInSummaryState();
-      const dateText = screen.getByText(/Garden Walk Complete/);
+      const dateText = screen.getByText(/Garden Walk/);
       expect(dateText).toBeInTheDocument();
     });
   });
@@ -510,7 +536,8 @@ describe('VoiceLoop', () => {
       });
 
       // Should be back in idle state
-      expect(screen.getByText('Gardening Whisperer')).toBeInTheDocument();
+      expect(screen.getByText('Gardening')).toBeInTheDocument();
+      expect(screen.getByText('Whisperer')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Start garden walk' })).toBeInTheDocument();
     });
 
@@ -532,7 +559,8 @@ describe('VoiceLoop', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Close summary' }));
       });
 
-      expect(screen.getByText('Gardening Whisperer')).toBeInTheDocument();
+      expect(screen.getByText('Gardening')).toBeInTheDocument();
+      expect(screen.getByText('Whisperer')).toBeInTheDocument();
     });
   });
 
@@ -604,7 +632,10 @@ describe('VoiceLoop', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
       });
 
-      expect(screen.getByText('Connection Error')).toBeInTheDocument();
+      expect(screen.getByText('Connection')).toBeInTheDocument();
+      // "Error" appears in both StatusPill and heading
+      const errorTexts = screen.getAllByText('Error');
+      expect(errorTexts.length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText('Network timeout')).toBeInTheDocument();
     });
 
@@ -645,7 +676,8 @@ describe('VoiceLoop', () => {
         fireEvent.click(screen.getByText('Return Home'));
       });
 
-      expect(screen.getByText('Gardening Whisperer')).toBeInTheDocument();
+      expect(screen.getByText('Gardening')).toBeInTheDocument();
+      expect(screen.getByText('Whisperer')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Start garden walk' })).toBeInTheDocument();
     });
 
@@ -730,7 +762,8 @@ describe('VoiceLoop', () => {
       });
     }
 
-    it('calls calendarSignIn when calendar is not connected', async () => {
+    it('calls calendarSignIn when calendar is not connected but GIS is ready', async () => {
+      calendarState.isGISReady = true;
       await goToSummary();
 
       await act(async () => {
@@ -751,14 +784,15 @@ describe('VoiceLoop', () => {
   // 10. CONNECTING STATE
   // ────────────────────────────────────────────────────────────────────────
   describe('connecting state', () => {
-    it('shows "ENTERING THE GARDEN..." text', async () => {
+    it('shows "Entering the Garden" text', async () => {
       render(<VoiceLoop />);
 
       await act(async () => {
         fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
       });
 
-      expect(screen.getByText('ENTERING THE GARDEN...')).toBeInTheDocument();
+      expect(screen.getByText('Entering')).toBeInTheDocument();
+      expect(screen.getByText('the Garden')).toBeInTheDocument();
     });
 
     it('does not show idle or active UI elements', async () => {
@@ -768,7 +802,7 @@ describe('VoiceLoop', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
       });
 
-      expect(screen.queryByText('Gardening Whisperer')).not.toBeInTheDocument();
+      expect(screen.queryByText('Gardening')).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'End garden walk' })).not.toBeInTheDocument();
     });
   });
@@ -804,7 +838,7 @@ describe('VoiceLoop', () => {
 
       // Click to show
       await act(async () => {
-        fireEvent.click(screen.getByText('View Full Conversation'));
+        fireEvent.click(screen.getByText('View Conversation'));
       });
 
       // Now shows the conversation content
@@ -813,7 +847,7 @@ describe('VoiceLoop', () => {
 
       // Click to hide
       await act(async () => {
-        fireEvent.click(screen.getByText('Hide Full Conversation'));
+        fireEvent.click(screen.getByText('Hide Conversation'));
       });
 
       expect(screen.queryByText('Welcome to your garden walk!')).not.toBeInTheDocument();
@@ -835,7 +869,8 @@ describe('VoiceLoop', () => {
       });
 
       // Still in connecting
-      expect(screen.getByText('ENTERING THE GARDEN...')).toBeInTheDocument();
+      expect(screen.getByText('Entering')).toBeInTheDocument();
+      expect(screen.getByText('the Garden')).toBeInTheDocument();
 
       // Fire onConnected
       await act(async () => {
@@ -843,8 +878,128 @@ describe('VoiceLoop', () => {
       });
 
       // Now in active state
-      expect(screen.queryByText('ENTERING THE GARDEN...')).not.toBeInTheDocument();
+      expect(screen.queryByText('the Garden')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'End garden walk' })).toBeInTheDocument();
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // 13. CAMERA SPEECH COMMAND FLOW
+  // ────────────────────────────────────────────────────────────────────────
+  describe('camera speech command flow', () => {
+    const { hasPhotoTrigger } = jest.requireMock('@/lib/photoTrigger');
+
+    beforeEach(() => {
+      hasPhotoTrigger.mockReturnValue(false);
+    });
+
+    async function renderInActiveWithPhotoTrigger() {
+      // Set up so photo trigger fires on the initial message set
+      geminiLiveState.isConnected = true;
+      geminiLiveState.isListening = true;
+      geminiLiveState.messages = [
+        { role: 'assistant', content: 'Can you show me your plant?' },
+      ];
+      // hasPhotoTrigger will return true for the AI message
+      hasPhotoTrigger.mockReturnValue(true);
+
+      render(<VoiceLoop />);
+
+      // Go to active state — messages effect fires and detects photo trigger
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
+      });
+      await act(async () => {
+        capturedGeminiOptions.onConnected?.();
+      });
+    }
+
+    it('calls pauseMic when camera opens via photo trigger', async () => {
+      await renderInActiveWithPhotoTrigger();
+
+      expect(mockPauseMic).toHaveBeenCalled();
+    });
+
+    it('calls suppressOutput(true) when camera opens via photo trigger', async () => {
+      await renderInActiveWithPhotoTrigger();
+
+      expect(mockSuppressOutput).toHaveBeenCalledWith(true);
+    });
+
+    it('calls startSpeechCommand when camera opens via photo trigger', async () => {
+      await renderInActiveWithPhotoTrigger();
+
+      expect(mockStartSpeechCommand).toHaveBeenCalled();
+    });
+
+    it('speech callback with "take photo" logs capture command', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      geminiLiveState.isConnected = true;
+      geminiLiveState.isListening = true;
+
+      render(<VoiceLoop />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
+      });
+      await act(async () => {
+        capturedGeminiOptions.onConnected?.();
+      });
+
+      // Simulate the onTranscript callback being called with "take photo"
+      act(() => {
+        capturedSpeechOnTranscript('take photo', true);
+      });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[VoiceLoop] Voice capture command detected via local speech'
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it('speech callback with "skip" logs photo decline', async () => {
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+      geminiLiveState.isConnected = true;
+      geminiLiveState.isListening = true;
+
+      render(<VoiceLoop />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
+      });
+      await act(async () => {
+        capturedGeminiOptions.onConnected?.();
+      });
+
+      // Simulate decline via speech callback
+      act(() => {
+        capturedSpeechOnTranscript('skip', true);
+      });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[VoiceLoop] User declined photo verbally via local speech'
+      );
+      consoleSpy.mockRestore();
+    });
+
+    it('photo state none calls stopSpeechCommand and resumeMic on initial render', async () => {
+      geminiLiveState.isConnected = true;
+      geminiLiveState.isListening = true;
+
+      render(<VoiceLoop />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Start garden walk' }));
+      });
+      await act(async () => {
+        capturedGeminiOptions.onConnected?.();
+      });
+
+      // photoState starts as 'none', so the else branch should fire
+      expect(mockStopSpeechCommand).toHaveBeenCalled();
+      expect(mockResumeMic).toHaveBeenCalled();
     });
   });
 });

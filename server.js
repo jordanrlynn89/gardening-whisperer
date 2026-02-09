@@ -20,7 +20,7 @@ function getLanIp() {
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
-const port = 3003;
+const port = parseInt(process.env.PORT || '3003', 10);
 
 // Use HTTPS if certs exist (needed for mic access on mobile via LAN)
 const certDir = path.join(__dirname, '.cert');
@@ -68,7 +68,8 @@ app.prepare().then(() => {
         host === '127.0.0.1' ||
         host === getLanIp() ||
         host.endsWith('.share.zrok.io') ||
-        host.endsWith('.ngrok-free.dev')
+        host.endsWith('.ngrok-free.dev') ||
+        host.endsWith('.up.railway.app')
       ) {
         return true;
       }
