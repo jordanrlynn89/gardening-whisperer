@@ -14,6 +14,44 @@ export function truncate(text: string, maxLen: number): string {
 }
 
 /**
+ * Clean up user response by removing filler words, hesitations, and making it concise.
+ */
+function cleanUserResponse(text: string): string {
+  // Remove leading/trailing whitespace
+  let cleaned = text.trim();
+
+  // Remove common filler words and hesitations at the start
+  const fillerPrefixes = [
+    /^(?:yeah|yes|yep|sure|okay|ok|well|um|uh|like|so|hmm|ah|oh),?\s+/i,
+    /^(?:i mean|you know|basically|actually|honestly|i think),?\s+/i,
+  ];
+
+  for (const pattern of fillerPrefixes) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+
+  // Remove trailing filler phrases
+  cleaned = cleaned.replace(/,?\s+(?:you know|i think|i guess|or something|and stuff)\.?$/i, '');
+
+  // Remove standalone filler words if they're the only content
+  const fillerWords = ['yeah', 'yes', 'yep', 'um', 'uh', 'okay', 'ok'];
+  const cleanedLower = cleaned.toLowerCase().replace(/[.,;:!?]/g, '');
+  if (fillerWords.includes(cleanedLower)) {
+    return '';
+  }
+
+  // Capitalize first letter
+  if (cleaned.length > 0) {
+    cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  }
+
+  // Remove trailing commas
+  cleaned = cleaned.replace(/,\s*$/, '');
+
+  return cleaned;
+}
+
+/**
  * Find the first user response that answers a question about a given topic.
  * Pairs AI questions with the user reply that follows.
  */
@@ -28,7 +66,8 @@ export function findUserResponseAbout(
       // Find next user message
       for (let j = i + 1; j < messages.length; j++) {
         if (messages[j].role === 'user' && messages[j].content.trim().length > 2) {
-          return messages[j].content.trim();
+          const cleaned = cleanUserResponse(messages[j].content);
+          return cleaned || null;
         }
       }
     }
@@ -49,7 +88,10 @@ export function extractStageSummary(
   if (stage === 'plant_id') {
     const plantName = extractPlantName(messages);
     if (plantName !== 'Your') return `${plantName} plant`;
-    if (userMessages.length > 0) return truncate(userMessages[0], 60);
+    if (userMessages.length > 0) {
+      const cleaned = cleanUserResponse(userMessages[0]);
+      return cleaned ? truncate(cleaned, 60) : 'Plant discussed';
+    }
     return 'Plant discussed';
   }
 
@@ -62,7 +104,8 @@ export function extractStageSummary(
     for (const msg of userMessages) {
       const lower = msg.toLowerCase();
       if (['yellow', 'brown', 'spot', 'wilt', 'droop', 'curl', 'dying', 'pale', 'hole', 'dry', 'crispy', 'soft', 'mushy', 'rot'].some(kw => lower.includes(kw))) {
-        return truncate(msg, 80);
+        const cleaned = cleanUserResponse(msg);
+        return cleaned ? truncate(cleaned, 80) : 'Symptoms discussed';
       }
     }
     return 'Symptoms discussed';

@@ -10,6 +10,7 @@ interface UseGeminiLiveReturn {
   suppressOutput: (enabled: boolean) => void;
   pauseMic: () => void;
   resumeMic: () => void;
+  stopAudio: () => void;
   isConnected: boolean;
   isListening: boolean;
   isSpeaking: boolean;
@@ -519,6 +520,24 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     }
   }, [isConnected]);
 
+  const stopAudio = useCallback(() => {
+    // Stop current audio playback
+    if (currentSourceRef.current) {
+      try {
+        currentSourceRef.current.stop();
+      } catch {
+        // Already stopped
+      }
+      currentSourceRef.current = null;
+    }
+
+    // Clear audio queue
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    setIsSpeaking(false);
+    optionsRef.current.onSpeakingEnd?.();
+  }, []);
+
   const sendImage = useCallback((imageData: string, text?: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
 
@@ -558,6 +577,7 @@ export function useGeminiLive(options: UseGeminiLiveOptions = {}): UseGeminiLive
     suppressOutput,
     pauseMic,
     resumeMic,
+    stopAudio,
     isConnected,
     isListening,
     isSpeaking,
