@@ -20,6 +20,7 @@ function getGIS(): typeof google.accounts.oauth2 | null {
 export function useGoogleCalendar() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isGISReady, setIsGISReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const tokenClientRef = useRef<google.accounts.oauth2.TokenClient | null>(null);
 
   // Check if token is valid (exists and not expired)
@@ -57,23 +58,43 @@ export function useGoogleCalendar() {
   useEffect(() => {
     if (!isGISReady) return;
     const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-    if (!clientId) return;
+    if (!clientId) {
+      console.error('[Calendar] NEXT_PUBLIC_GOOGLE_CLIENT_ID not set');
+      setError('Calendar not configured - missing client ID');
+      return;
+    }
 
     const gis = getGIS();
-    if (!gis) return;
+    if (!gis) {
+      console.error('[Calendar] Google Identity Services not available');
+      setError('Google Sign-In library failed to load');
+      return;
+    }
 
-    tokenClientRef.current = gis.initTokenClient({
-      client_id: clientId,
-      scope: SCOPE,
-      callback: (response) => {
-        if (response.error) return;
-        const token = response.access_token;
-        const expiry = Date.now() + response.expires_in * 1000;
-        localStorage.setItem(TOKEN_KEY, token);
-        localStorage.setItem(EXPIRY_KEY, String(expiry));
-        setAccessToken(token);
-      },
-    });
+    try {
+      tokenClientRef.current = gis.initTokenClient({
+        client_id: clientId,
+        scope: SCOPE,
+        callback: (response) => {
+          if (response.error) {
+            console.error('[Calendar] OAuth error:', response.error);
+            setError(`Sign-in failed: ${response.error}`);
+            return;
+          }
+          console.log('[Calendar] Successfully signed in');
+          const token = response.access_token;
+          const expiry = Date.now() + response.expires_in * 1000;
+          localStorage.setItem(TOKEN_KEY, token);
+          localStorage.setItem(EXPIRY_KEY, String(expiry));
+          setAccessToken(token);
+          setError(null);
+        },
+      });
+      console.log('[Calendar] Token client initialized');
+    } catch (err) {
+      console.error('[Calendar] Failed to initialize token client:', err);
+      setError('Failed to initialize Google Sign-In');
+    }
   }, [isGISReady]);
 
   const signIn = useCallback(() => {
@@ -90,5 +111,5 @@ export function useGoogleCalendar() {
     setAccessToken(null);
   }, [accessToken]);
 
-  return { isConnected, accessToken, isGISReady, signIn, signOut };
+  return { isConnected, accessToken, isGISReady, signIn, signOut, error };
 }

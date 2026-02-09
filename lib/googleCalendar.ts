@@ -78,7 +78,18 @@ export async function createCalendarEvent(
   );
 
   if (!res.ok) {
-    throw new Error('Failed to create calendar event');
+    const errorBody = await res.text();
+    console.error('[Calendar API] Error response:', res.status, errorBody);
+    let errorMessage = `Failed to create calendar event (${res.status})`;
+    try {
+      const errorJson = JSON.parse(errorBody);
+      if (errorJson.error?.message) {
+        errorMessage = errorJson.error.message;
+      }
+    } catch {
+      // errorBody is not JSON
+    }
+    throw new Error(errorMessage);
   }
 
   return res.json();
