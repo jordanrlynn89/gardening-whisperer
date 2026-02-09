@@ -162,10 +162,11 @@ describe('createCalendarEvent', () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: false,
       status: 401,
+      text: async () => JSON.stringify({ error: { message: 'Invalid credentials' } }),
       json: async () => ({ error: { message: 'Invalid credentials' } }),
     });
 
-    await expect(createCalendarEvent(fakeToken, fakeEvent)).rejects.toThrow('Failed to create calendar event');
+    await expect(createCalendarEvent(fakeToken, fakeEvent)).rejects.toThrow('Invalid credentials');
   });
 
   it('throws on network error', async () => {

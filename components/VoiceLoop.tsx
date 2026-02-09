@@ -438,15 +438,30 @@ export function VoiceLoop() {
         sendText('I tried to analyze the photo but had trouble. Can you describe what you see instead?');
       }
 
-      photoCooldownUntilRef.current = Date.now() + 90000;
+      photoCooldownUntilRef.current = Date.now() + 10000;
       setPhotoState('none');
     },
     [sendText, messages, messagesRef]
   );
 
   const handlePhotoCancel = () => {
-    photoCooldownUntilRef.current = Date.now() + 30000;
+    // No cooldown on cancel - allow user to try again immediately
     setPhotoState('none');
+  };
+
+  const handleManualCameraButton = () => {
+    // Check cooldown
+    if (photoCooldownUntilRef.current && Date.now() < photoCooldownUntilRef.current) {
+      console.log('[VoiceLoop] Photo cooldown active');
+      return;
+    }
+
+    // Open camera
+    console.log('[VoiceLoop] Manual camera button clicked');
+    setPhotoState('capturing_camera');
+
+    // Speak the photo prompt (reuse existing function)
+    speakPhotoPrompt();
   };
 
   const backgroundGradient = getBackgroundGradient(currentStage);
@@ -533,7 +548,19 @@ export function VoiceLoop() {
           </div>
 
           {/* Action Pill Bar - Bottom */}
-          <div className="absolute left-0 right-0 bottom-0 z-20 flex justify-center" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
+          <div className="absolute left-0 right-0 bottom-0 z-20 flex justify-center gap-3" style={{ paddingBottom: 'calc(1.5rem + env(safe-area-inset-bottom))' }}>
+            <button
+              onClick={handleManualCameraButton}
+              disabled={photoState !== 'none' || isSpeaking || (photoCooldownUntilRef.current > 0 && Date.now() < photoCooldownUntilRef.current)}
+              className="px-6 py-3.5 bg-pixel-surface/60 border border-pixel-surface-bright/40 rounded-pill text-pixel-on-surface/80 text-[15px] font-medium transition-all duration-200 pill-press backdrop-blur-md hover:bg-pixel-surface/80 active:bg-pixel-surface disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              aria-label="Take photo manually"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+                <circle cx="12" cy="13" r="4"/>
+              </svg>
+              Photo
+            </button>
             <button
               onClick={handleEnd}
               aria-label="End garden walk"
