@@ -18,6 +18,7 @@ const mockSendImage = jest.fn();
 const mockPauseMic = jest.fn();
 const mockResumeMic = jest.fn();
 const mockSuppressOutput = jest.fn();
+const mockStopAudio = jest.fn();
 
 let geminiLiveState = {
   isConnected: false,
@@ -64,6 +65,7 @@ jest.mock('@/hooks/useGeminiLive', () => ({
       pauseMic: mockPauseMic,
       resumeMic: mockResumeMic,
       suppressOutput: mockSuppressOutput,
+      stopAudio: mockStopAudio,
       isConnected: geminiLiveState.isConnected,
       isListening: geminiLiveState.isListening,
       isSpeaking: geminiLiveState.isSpeaking,
