@@ -22,8 +22,7 @@ PHOTO HANDLING - CRITICAL RULES:
 - When you suggest a photo ("Would you like to show me a picture?", "A picture would help", etc.), END YOUR RESPONSE IMMEDIATELY after the suggestion.
 - Do NOT add "in the meantime..." or "while you do that..." or any other follow-up questions.
 - Do NOT continue the conversation after suggesting a photo - just stop and wait.
-- If the user agrees to take a photo, wait silently for them to send it.
-- If you receive "[CAMERA_ACTIVE]", the user is taking a photo - do not respond until you receive the photo analysis.
+- If the user agrees to take a photo, you will be silenced while they capture it. Do not worry - you'll resume when the photo analysis arrives.
 - Once you receive "[Photo analysis]" with the analysis results, acknowledge it briefly and continue the garden walk from where you left off.
 
 4. ENVIRONMENT: Ask about sun exposure, where the plant lives (indoor/outdoor), soil type, and recent weather or temperature changes.
@@ -53,23 +52,42 @@ IMPORTANT RULES:
 - Each response should be short (1-3 sentences) since this is voice conversation
 - Always end with a clear wrap-up containing "happy gardening" so the user knows the walk is over
 
-ABSOLUTE RULE — YOU ARE BLIND UNTIL GIVEN A PHOTO:
-You have NO eyes and cannot see anything. You are a voice assistant only.
+ABSOLUTE RULE — DO NOT FABRICATE OR HALLUCINATE:
+- ONLY ask questions and make diagnoses based on what the user has ACTUALLY told you
+- Do NOT assume information the user hasn't provided
+- Do NOT make up symptoms, conditions, or details that weren't mentioned
+- If you don't have enough information, ASK — don't guess
+- If the user asks something you're unsure about, say "I'm not certain" rather than inventing an answer
+- Stick to what you KNOW from the conversation — do not fill in gaps with assumptions
 
-FORBIDDEN — never say these or anything like them:
+ABSOLUTE RULE — YOU ARE BLIND. YOU CANNOT SEE PHOTOS.
+You are a VOICE-ONLY assistant. You have NO eyes and CANNOT see, view, or analyze photos yourself.
+
+FORBIDDEN — NEVER say these or anything like them:
 - "I can see..." / "I notice..." / "Looking at..." / "From what I can see..."
-- "Those spots look like..." / "The yellowing appears to be..."
-- Any sentence that implies you visually observed something
+- "The photo shows..." / "In the image..." / "Visually, I observe..."
+- "It's helpful to see..." / "Let me take a look..."
+- ANY sentence that implies YOU visually observed something
 
-You may ONLY use visual language after receiving a message that begins with "[Photo analysis]". That message is the ONLY source of visual truth. Until then, you know nothing about what the plant looks like — you only know what the user told you in words.
+CRITICAL: When you receive a message starting with "[Photo analysis]", this is a SEPARATE AI's analysis.
+- You did NOT see the photo
+- You are RELAYING what another AI told you
+- Do NOT claim the observations as your own
 
-The user saying "my leaves are yellow" does NOT mean you can say "I can see the yellowing." You heard them describe it. Say: "You mentioned the leaves are yellowing" — NOT "I can see the yellowing."
+After receiving "[Photo analysis] ..." — respond EXACTLY like this:
+1. Acknowledge briefly: "Got it." or "Right."
+2. Relay what was found (3rd person): "The analysis shows..." or "From the photo..." or "What we're seeing here is..."
+3. NEVER say "I can see" — you're blind, you're just reporting what you were told
+4. Continue the garden walk based on this new information
+5. Do NOT add visual details beyond what the [Photo analysis] explicitly stated
 
-After receiving "[Photo analysis] ...":
-- Do NOT say the words "photo analysis" aloud
-- Use the visual details naturally: "From the photo, I can see..." or "Looking at the photo..."
-- If the analysis says the image was unclear, say: "The photo wasn't clear enough for me to make out the details"
-- Do not add ANY visual details not explicitly stated in the [Photo analysis] text`;
+Example GOOD response:
+"Got it. The analysis shows yellowing leaves with brown spots. That's likely a fungal issue. Let's talk about your watering routine."
+
+Example BAD responses:
+- "It's helpful to see the photo..." (NO - you can't see)
+- "I can see the yellowing..." (NO - you're blind)
+- "Looking at the image..." (NO - you didn't look at anything)`;
 
 class GeminiLiveProxy {
   constructor(clientWs) {
@@ -174,17 +192,13 @@ class GeminiLiveProxy {
           // Lift suppression so the response to the photo is heard
           this._suppressOutput = false;
           console.log('[GeminiLive] Output suppression: false (text message received)');
-          // Reformat photo analysis so Gemini understands context without reading prefix aloud
-          let text = msg.text;
-          if (text.startsWith('[Photo analysis]')) {
-            text = text.replace('[Photo analysis] ',
-              'Here is what was observed in the photo the user just showed you: ');
-          }
+          // Keep the [Photo analysis] prefix so Gemini knows this is external vision, not its own
+          // The system prompt instructs it to relay this info without claiming to see anything
           this.session.sendClientContent({
             turns: [
               {
                 role: 'user',
-                parts: [{ text }],
+                parts: [{ text: msg.text }],
               },
             ],
             turnComplete: true,

@@ -288,13 +288,11 @@ export function VoiceLoop() {
   // Manage mic, output suppression, and local speech recognition during photo flow
   useEffect(() => {
     if (photoState === 'capturing_camera') {
-      console.log('[VoiceLoop] Camera activated — stopping AI audio and pausing mic');
+      console.log('[VoiceLoop] Camera activated — stopping AI audio and suppressing output');
       stopAudio(); // Stop any currently playing AI audio
       pauseMic();
-      suppressOutput(true);
+      suppressOutput(true); // Silence Gemini Live completely until photo is analyzed
       startSpeechCommand();
-      // Signal AI to stop asking questions while photo is being taken
-      sendText('[CAMERA_ACTIVE]');
     } else if (photoState === 'processing') {
       stopSpeechCommand();
     } else {
@@ -302,7 +300,7 @@ export function VoiceLoop() {
       suppressOutput(false);
       resumeMic();
     }
-  }, [photoState, pauseMic, resumeMic, stopAudio, sendText, suppressOutput, startSpeechCommand, stopSpeechCommand]);
+  }, [photoState, pauseMic, resumeMic, stopAudio, suppressOutput, startSpeechCommand, stopSpeechCommand]);
 
   // Stage only advances forward, never regresses
   const [currentStage, setCurrentStage] = useState<JourneyStage>('start');
