@@ -8,7 +8,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#1c1917",
+  themeColor: "#0F0F0F",
 };
 
 export const metadata: Metadata = {
@@ -32,7 +32,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-stone-900">
+      <body className="antialiased bg-pixel-bg font-pixel">
         {children}
         <Script src="https://accounts.google.com/gsi/client" strategy="lazyOnload" />
         <Script id="sw-register" strategy="lazyOnload">{`

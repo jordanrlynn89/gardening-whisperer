@@ -162,8 +162,8 @@ describe('CameraCapture', () => {
     render(<CameraCapture onCapture={mockOnCapture} onCancel={mockOnCancel} />);
 
     const captureButton = screen.getByRole('button', { name: /capture/i });
-    // Check for w-24 h-24 classes (96px)
-    expect(captureButton.className).toMatch(/w-24/);
-    expect(captureButton.className).toMatch(/h-24/);
+    // Check for w-20 h-20 classes (80px)
+    expect(captureButton.className).toMatch(/w-20/);
+    expect(captureButton.className).toMatch(/h-20/);
   });
 });
