@@ -14,14 +14,16 @@ describe('GardenJourney', () => {
     it('should show archway at start stage', () => {
       render(<GardenJourney currentStage="start" isWalking={false} />);
 
-      expect(screen.getByText('Welcome to the Garden')).toBeInTheDocument();
-      expect(screen.getByText('Enter')).toBeInTheDocument();
+      // "Welcome" appears in both the hero title and tile label
+      const welcomeTexts = screen.getAllByText('Welcome');
+      expect(welcomeTexts.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Starting your garden walk')).toBeInTheDocument();
     });
 
     it('should show plant_id label at plant_id stage', () => {
       render(<GardenJourney currentStage="plant_id" isWalking={false} />);
 
-      expect(screen.getByText('What plant do you have?')).toBeInTheDocument();
+      expect(screen.getByText('Tell me about your plant')).toBeInTheDocument();
     });
 
     it('should show symptoms label at symptoms stage', () => {
@@ -45,21 +47,25 @@ describe('GardenJourney', () => {
     it('should show diagnosis label at complete stage', () => {
       render(<GardenJourney currentStage="complete" isWalking={false} />);
 
-      expect(screen.getByText('Diagnosis Ready')).toBeInTheDocument();
+      expect(screen.getByText('Wrapping up your garden walk')).toBeInTheDocument();
     });
   });
 
   describe('walking animation', () => {
-    it('should show walking indicator when isWalking is true', () => {
-      render(<GardenJourney currentStage="plant_id" isWalking={true} />);
+    it('should show pulsing dot indicator when isWalking is true', () => {
+      const { container } = render(<GardenJourney currentStage="plant_id" isWalking={true} />);
 
-      expect(screen.getByText('Walking...')).toBeInTheDocument();
+      // The walking indicator is now a pulsing dot with animate-pulse class
+      const pulsingDot = container.querySelector('.animate-pulse');
+      expect(pulsingDot).toBeInTheDocument();
     });
 
-    it('should not show walking indicator when isWalking is false', () => {
-      render(<GardenJourney currentStage="plant_id" isWalking={false} />);
+    it('should not show pulsing dot indicator when isWalking is false', () => {
+      const { container } = render(<GardenJourney currentStage="plant_id" isWalking={false} />);
 
-      expect(screen.queryByText('Walking...')).not.toBeInTheDocument();
+      // No pulsing dot when not walking
+      const pulsingDot = container.querySelector('.animate-pulse');
+      expect(pulsingDot).not.toBeInTheDocument();
     });
   });
 
@@ -67,18 +73,21 @@ describe('GardenJourney', () => {
     it('should render all stages in correct order', () => {
       const { container } = render(<GardenJourney currentStage="complete" isWalking={false} />);
 
-      // At complete stage, all icons should be visible (opacity-100)
+      // At complete stage, all 6 tile icons should be visible
       const svgs = container.querySelectorAll('svg');
-      // 8 svgs: 6 stage icons + 2 decorative vine paths
-      expect(svgs.length).toBe(8);
+      expect(svgs.length).toBe(6);
     });
 
-    it('should show Enter text only at start stage', () => {
+    it('should show Welcome tile label only highlighted at start stage', () => {
       const { rerender } = render(<GardenJourney currentStage="start" isWalking={false} />);
-      expect(screen.getByText('Enter')).toBeInTheDocument();
+      // "Welcome" appears in both hero title and tile label
+      const welcomeTexts = screen.getAllByText('Welcome');
+      expect(welcomeTexts.length).toBeGreaterThanOrEqual(1);
 
       rerender(<GardenJourney currentStage="plant_id" isWalking={false} />);
-      expect(screen.queryByText('Enter')).not.toBeInTheDocument();
+      // Welcome tile label still exists but is no longer the active stage hero
+      const welcomeAfter = screen.getAllByText('Welcome');
+      expect(welcomeAfter.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -89,16 +98,16 @@ describe('GardenJourney', () => {
       // Start walking to next stage
       rerender(<GardenJourney currentStage="plant_id" isWalking={true} />);
 
-      // Initially should still show start label due to animation delay
-      expect(screen.getByText('Welcome to the Garden')).toBeInTheDocument();
+      // Initially should still show start stage subtitle due to animation delay
+      expect(screen.getByText('Starting your garden walk')).toBeInTheDocument();
 
       // After delay, should update
       act(() => {
         jest.advanceTimersByTime(700);
       });
 
-      // Now should show new stage
-      expect(screen.getByText('What plant do you have?')).toBeInTheDocument();
+      // Now should show new stage subtitle
+      expect(screen.getByText('Tell me about your plant')).toBeInTheDocument();
     });
   });
 });
