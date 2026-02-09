@@ -233,16 +233,8 @@ export function VoiceLoop() {
     return () => clearInterval(interval);
   }, [appState]);
 
-  // Speak acknowledgment when photo chooser appears
-  const speakPhotoPrompt = useCallback(() => {
-    if ('speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance('You can go ahead and take a photo or upload a photo now');
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      utterance.volume = 0.8;
-      window.speechSynthesis.speak(utterance);
-    }
-  }, []);
+  // Removed speakPhotoPrompt - the camera UI is self-explanatory and TTS was being picked up by the mic
+  // causing Gemini to respond with "no worries" etc.
 
   // Track whether a photo trigger was detected but waiting for speech to end
   const pendingPhotoTriggerRef = useRef(false);
@@ -268,12 +260,11 @@ export function VoiceLoop() {
         } else {
           pendingPhotoTriggerRef.current = false;
           setPhotoState('capturing_camera');
-          speakPhotoPrompt();
         }
         break;
       }
     }
-  }, [messages, photoState, isSpeaking, speakPhotoPrompt]);
+  }, [messages, photoState, isSpeaking]);
 
   // Show photo UI once AI finishes speaking
   useEffect(() => {
@@ -281,9 +272,8 @@ export function VoiceLoop() {
       pendingPhotoTriggerRef.current = false;
       console.log('[VoiceLoop] AI finished speaking — showing camera');
       setPhotoState('capturing_camera');
-      speakPhotoPrompt();
     }
-  }, [isSpeaking, photoState, speakPhotoPrompt]);
+  }, [isSpeaking, photoState]);
 
   // Also detect from streaming AI transcripts
   useEffect(() => {
@@ -302,9 +292,8 @@ export function VoiceLoop() {
     if (hasPhotoTrigger(userTranscript, 'user')) {
       pendingPhotoTriggerRef.current = false;
       setPhotoState('capturing_camera');
-      speakPhotoPrompt();
     }
-  }, [userTranscript, photoState, speakPhotoPrompt]);
+  }, [userTranscript, photoState]);
 
   // Manage mic, output suppression, and local speech recognition during photo flow
   useEffect(() => {
@@ -473,7 +462,7 @@ export function VoiceLoop() {
           console.log('[VoiceLoop] Photo triggers suppressed for 45 seconds');
         } else {
           console.warn('[VoiceLoop] Photo analysis failed:', data.error);
-          sendText('I apologize, but photo analysis is temporarily unavailable. Can you describe what you see instead?');
+          sendText('[System: Photo analysis failed. Say exactly: "I apologize, but photo analysis is temporarily unavailable. Can you describe what you see instead?"]');
         }
       } catch (err) {
         console.error('[VoiceLoop] Photo analysis fetch error:', err);
@@ -482,7 +471,7 @@ export function VoiceLoop() {
           clearTimeout(photoTimeoutRef.current);
           photoTimeoutRef.current = null;
         }
-        sendText('I tried to analyze the photo but had trouble. Can you describe what you see instead?');
+        sendText('[System: Photo analysis failed. Say exactly: "I apologize, but photo analysis is temporarily unavailable. Can you describe what you see instead?"]');
       }
 
       photoCooldownUntilRef.current = Date.now() + 10000;
@@ -509,9 +498,6 @@ export function VoiceLoop() {
 
     // Clear trigger suppression when user manually requests photo
     suppressPhotoTriggersUntilRef.current = 0;
-
-    // Speak the photo prompt (reuse existing function)
-    speakPhotoPrompt();
   };
 
   const backgroundGradient = getBackgroundGradient(currentStage);
@@ -525,6 +511,17 @@ export function VoiceLoop() {
         className={`absolute inset-0 pointer-events-none z-0 ambient-bg ${backgroundGradient}`}
         style={{ opacity: 0.4 }}
       />
+
+      {/* Watermark */}
+      <a
+        href="https://github.com/jordanrlynn89"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-2 right-3 text-[10px] text-pixel-on-surface-variant/20 hover:text-pixel-on-surface-variant/40 transition-colors duration-300 z-50"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        JRL
+      </a>
 
       {/* IDLE */}
       {appState === 'idle' && (
